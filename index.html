@@ -131,12 +131,6 @@
     <button class="menu-btn" id="btn-cancel-wait" style="margin-top: 40px; background: rgba(239, 68, 68, 0.3);">Cancel</button>
 </div>
 
-<!-- Custom Alert Popup -->
-<div id="custom-alert" class="fullscreen-menu" style="display: none; z-index: 6000; background: rgba(15,23,42,0.95);">
-    <h2 id="custom-alert-msg" style="font-size: 2rem; margin-bottom: 30px; text-transform: uppercase; color: #fbbf24; text-align: center; max-width: 80%;"></h2>
-    <button class="menu-btn" id="btn-alert-ok" style="background: rgba(34, 197, 94, 0.4); width: 140px;">OK</button>
-</div>
-
 <!-- Exit Confirmation Popup -->
 <div id="exit-popup" class="fullscreen-menu" style="display: none; z-index: 5000; background: rgba(15,23,42,0.95);">
     <h2 style="font-size: 2.5rem; margin-bottom: 30px; text-transform: uppercase;">Do You Want to Quit?</h2>
@@ -144,6 +138,12 @@
         <button class="menu-btn" id="btn-exit-yes" style="background: rgba(239, 68, 68, 0.4); width: 140px;">Yes</button>
         <button class="menu-btn" id="btn-exit-no" style="background: rgba(34, 197, 94, 0.4); width: 140px;">No</button>
     </div>
+</div>
+
+<!-- Custom Alert Popup -->
+<div id="custom-alert" class="fullscreen-menu" style="display: none; z-index: 6000; background: rgba(15,23,42,0.95);">
+    <h2 id="alert-message" style="font-size: 2rem; margin-bottom: 30px; text-transform: uppercase; max-width: 80%; line-height: 1.4;"></h2>
+    <button class="menu-btn" id="btn-alert-ok" style="background: rgba(34, 197, 94, 0.4); width: 140px;">OK</button>
 </div>
 
 <!-- End Game Screen -->
@@ -213,40 +213,15 @@
     window.lastSyncTime = 0; window.gameEnded = false; 
     window.inMatch = false; // Tracks if user is actively in a game
 
-    // --- AUDIO SYSTEM ---
-    const sounds = {
-        bgm: new Audio('background.mp3'),
-        jump: new Audio('jump.mp3'),
-        arrow: new Audio('arrow.mp3'),
-        hit: new Audio('hit.mp3'),
-        bob: new Audio('bob.mp3'), // Explosive sound
-        charge: new Audio('charge.mp3') // Charge sound
-    };
-    sounds.bgm.loop = true;
-
-    // Start background music on the first user interaction anywhere in the menu screen
-    const playBgmOnInteract = () => {
-        if (!window.inMatch && sounds.bgm.paused) {
-            sounds.bgm.play().catch(e => console.log('BGM play blocked:', e));
-        }
-        document.removeEventListener('click', playBgmOnInteract);
-        document.removeEventListener('touchstart', playBgmOnInteract);
-    };
-    document.addEventListener('click', playBgmOnInteract);
-    document.addEventListener('touchstart', playBgmOnInteract);
-
-    function initAudio() {
-        for (let key in sounds) {
-            sounds[key].load();
-        }
+    // Custom Styled Popup Alert Handler
+    function showCustomAlert(msg) {
+        document.getElementById('alert-message').innerText = msg;
+        document.getElementById('custom-alert').style.display = 'flex';
     }
 
-    function playSound(name) {
-        if(sounds[name]) {
-            let s = sounds[name].cloneNode();
-            s.play().catch(e => console.log('Audio play blocked/failed:', e));
-        }
-    }
+    document.getElementById('btn-alert-ok').addEventListener('click', () => {
+        document.getElementById('custom-alert').style.display = 'none';
+    });
 
     function saveResult(winnerName, loserName) {
         if(fb.db) {
@@ -259,15 +234,6 @@
             });
         }
     }
-
-    // Custom Alert Popup Logic
-    function showCustomAlert(msg) {
-        document.getElementById('custom-alert-msg').innerText = msg;
-        document.getElementById('custom-alert').style.display = 'flex';
-    }
-    document.getElementById('btn-alert-ok').addEventListener('click', () => {
-        document.getElementById('custom-alert').style.display = 'none';
-    });
 
     window.addEventListener('popstate', (e) => {
         if (window.inMatch && !window.gameEnded) {
@@ -302,11 +268,8 @@
         document.getElementById('start-screen').style.display = 'none';
         
         window.inMatch = true;
+        p2.lastAi = Date.now(); // Prevents AI from firing instantly
         history.pushState({ inGame: true }, "");
-
-        // Stop BGM for solo play
-        sounds.bgm.pause();
-        sounds.bgm.currentTime = 0;
 
         document.getElementById('p1-name-display').innerText = "LEGEND";
         document.getElementById('p2-name-display').innerText = "RIVAL";
@@ -333,6 +296,7 @@
     document.getElementById('btn-exit-no').addEventListener('click', () => {
         document.getElementById('exit-popup').style.display = 'none';
     });
+    
     document.getElementById('btn-exit-yes').addEventListener('click', () => {
         document.getElementById('exit-popup').style.display = 'none';
         if(window.multiplayerMode && fb.db && !window.gameEnded) {
@@ -398,10 +362,6 @@
         window.multiplayerMode = true;
         window.inMatch = true;
         history.pushState({ inGame: true }, "");
-
-        // Stop BGM for multiplayer play
-        sounds.bgm.pause();
-        sounds.bgm.currentTime = 0;
         
         document.getElementById('p1-name-display').innerText = window.myName.toUpperCase();
         document.getElementById('p2-name-display').innerText = window.oppName.toUpperCase();
@@ -434,7 +394,6 @@
                 if(p2.isGrounded && s.vy < -5) {
                     playSound('jump');
                 }
-
                 p2.x = width - (s.nx * width) - p2.w;
                 if(s.gy !== undefined) p2.y = groundY - s.gy; 
                 p2.vx = -s.vx; p2.vy = s.vy;
@@ -443,7 +402,7 @@
                 p2.hp = s.hp;
                 p2.ability = s.ability;
                 p2.recharge = s.recharge;
-                if(s.dir !== undefined) p2.dir = -s.dir; 
+                if(s.dir !== undefined) p2.dir = -s.dir;
                 if(p2.y < groundY - p2.h - 5) p2.isGrounded = false;
             }
         });
@@ -455,6 +414,7 @@
             if(ev && ev.ts > connectTime - 1000) {
                 let stX = ev.nx !== undefined ? (width - (ev.nx * width) - p2.w + 17) : (p2.x + 17);
                 let stY = ev.gy !== undefined ? (groundY - ev.gy + 30) : (p2.y + 30);
+                
                 let rx = ev.sw ? width / ev.sw : 1;
                 let ry = ev.sh ? height / ev.sh : 1;
                 
@@ -471,10 +431,29 @@
         });
     }
 
-    // ----- GAME ENGINE ----- //
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
+    const sounds = {
+        jump: new Audio('jump.mp3'),
+        arrow: new Audio('arrow.mp3'),
+        hit: new Audio('hit.mp3'),
+        bob: new Audio('bob.mp3')
+    };
+
+    function initAudio() {
+        for (let key in sounds) {
+            sounds[key].load();
+        }
+    }
+
+    function playSound(name) {
+        if(sounds[name]) {
+            let s = sounds[name].cloneNode();
+            s.play().catch(e => console.log('Audio play blocked/failed:', e));
+        }
+    }
+
     let width, height, groundY;
     const gravity = 0.5;
     let arrows = [], damageTexts = [], explosions = [], particles = [];
@@ -533,6 +512,7 @@
     
     const triggerJump = (e) => { 
         if(e) e.preventDefault(); 
+        if(!window.inMatch) return;
         if(p1.isGrounded) { 
             p1.vy = -10; p1.isGrounded = false; playSound('jump'); 
             if (window.multiplayerMode && fb.db) {
@@ -547,8 +527,8 @@
 
     let isDrag = false, sx, sy;
     const dragStart = (e, x, y) => { 
+        if (!window.inMatch) return; // Disables firing manually from the main menu background completely
         isDrag = true; sx = x; sy = y; p1.pulling = true; 
-        if (p1.ability) playSound('charge');
     };
     const dragMove = (x, y) => { if(isDrag) { p1.pullX = x - sx; p1.pullY = y - sy; } };
     const dragEnd = () => {
@@ -582,11 +562,9 @@
                 });
             }
             spawnArrow(p1, ang, pwr, finalType);
-        } else if (!window.multiplayerMode) {
-            const pullX = Math.min((p2.x - p1.x) / 3, 160);
-            const pullY = 80 + Math.random() * 50; 
-            const pwr = Math.min(Math.sqrt(pullX**2 + pullY**2)/6, 32);
-            const ang = Math.atan2(pullY, pullX) + Math.PI;
+        } else if (!window.multiplayerMode && window.inMatch) {
+            const pwr = Math.min(Math.sqrt(150**2 + 100**2)/6, 32);
+            const ang = Math.atan2(-100, 150) + Math.PI;
             spawnArrow(p2, ang, pwr, 'normal');
         }
     }
@@ -660,9 +638,9 @@
             ctx.beginPath(); ctx.arc(6, -32, 1.5, 0, Math.PI*2); ctx.fill();
         }
         
-        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(9, -36); ctx.stroke(); 
-        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-14, -38); ctx.stroke(); 
-        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-12, -32); ctx.stroke(); 
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(9, -36); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-14, -38); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-12, -32); ctx.stroke();
 
         ctx.strokeStyle = "#334155"; ctx.lineWidth = 4;
         ctx.beginPath(); ctx.moveTo(0, -21); ctx.lineTo(0, 10); ctx.stroke();
@@ -719,7 +697,8 @@
         
         if (!window.multiplayerMode) {
             p2.x += p2.vx; p2.y += p2.vy; p2.vy += gravity;
-            if(Date.now() - p2.lastAi > 2875) { fire(p2); p2.lastAi = Date.now(); }
+            // Ensures bot only fires if the actual match has explicitly started
+            if(window.inMatch && Date.now() - p2.lastAi > 2875) { fire(p2); p2.lastAi = Date.now(); }
         } else {
             p2.y += p2.vy; p2.vy += gravity;
             if (Date.now() - window.lastSyncTime > 30 && fb.db) {
