@@ -131,6 +131,12 @@
     <button class="menu-btn" id="btn-cancel-wait" style="margin-top: 40px; background: rgba(239, 68, 68, 0.3);">Cancel</button>
 </div>
 
+<!-- Custom Alert Popup -->
+<div id="custom-alert" class="fullscreen-menu" style="display: none; z-index: 6000; background: rgba(15,23,42,0.95);">
+    <h2 id="custom-alert-msg" style="font-size: 2rem; margin-bottom: 30px; text-transform: uppercase; color: #fbbf24; text-align: center; max-width: 80%;"></h2>
+    <button class="menu-btn" id="btn-alert-ok" style="background: rgba(34, 197, 94, 0.4); width: 140px;">OK</button>
+</div>
+
 <!-- Exit Confirmation Popup -->
 <div id="exit-popup" class="fullscreen-menu" style="display: none; z-index: 5000; background: rgba(15,23,42,0.95);">
     <h2 style="font-size: 2.5rem; margin-bottom: 30px; text-transform: uppercase;">Do You Want to Quit?</h2>
@@ -207,11 +213,44 @@
     window.lastSyncTime = 0; window.gameEnded = false; 
     window.inMatch = false; // Tracks if user is actively in a game
 
+    // --- AUDIO SYSTEM ---
+    const sounds = {
+        bgm: new Audio('background.mp3'),
+        jump: new Audio('jump.mp3'),
+        arrow: new Audio('arrow.mp3'),
+        hit: new Audio('hit.mp3'),
+        bob: new Audio('bob.mp3'), // Explosive sound
+        charge: new Audio('charge.mp3') // Charge sound
+    };
+    sounds.bgm.loop = true;
+
+    // Start background music on the first user interaction anywhere in the menu screen
+    const playBgmOnInteract = () => {
+        if (!window.inMatch && sounds.bgm.paused) {
+            sounds.bgm.play().catch(e => console.log('BGM play blocked:', e));
+        }
+        document.removeEventListener('click', playBgmOnInteract);
+        document.removeEventListener('touchstart', playBgmOnInteract);
+    };
+    document.addEventListener('click', playBgmOnInteract);
+    document.addEventListener('touchstart', playBgmOnInteract);
+
+    function initAudio() {
+        for (let key in sounds) {
+            sounds[key].load();
+        }
+    }
+
+    function playSound(name) {
+        if(sounds[name]) {
+            let s = sounds[name].cloneNode();
+            s.play().catch(e => console.log('Audio play blocked/failed:', e));
+        }
+    }
+
     function saveResult(winnerName, loserName) {
         if(fb.db) {
-            // Strip any Firebase-invalid characters from the winner name to ensure safe key generation
             let safeName = winnerName.replace(/[.#$\[\]]/g, '');
-            // Saves explicitly to database under: saves/WINNER_NAME/... with Room Code
             fb.push(fb.ref(fb.db, `saves/${safeName}`), { 
                 winnerName: winnerName, 
                 loserName: loserName, 
@@ -221,16 +260,22 @@
         }
     }
 
-    // Intercept hardware back button on phones
+    // Custom Alert Popup Logic
+    function showCustomAlert(msg) {
+        document.getElementById('custom-alert-msg').innerText = msg;
+        document.getElementById('custom-alert').style.display = 'flex';
+    }
+    document.getElementById('btn-alert-ok').addEventListener('click', () => {
+        document.getElementById('custom-alert').style.display = 'none';
+    });
+
     window.addEventListener('popstate', (e) => {
         if (window.inMatch && !window.gameEnded) {
             document.getElementById('exit-popup').style.display = 'flex';
-            // Push state again so the user remains on the game page while deciding
             history.pushState({ inGame: true }, "");
         }
     });
 
-    // Helper to force full screen on interaction
     function forceFullScreen() {
         if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
             document.documentElement.requestFullscreen().catch(() => {});
@@ -247,7 +292,7 @@
             return true;
         } catch(err) {
             console.error(err);
-            alert("Could not connect to Multiplayer! Please check your connection.");
+            showCustomAlert("Could not connect to Multiplayer! Please check your connection.");
             return false;
         }
     }
@@ -258,6 +303,10 @@
         
         window.inMatch = true;
         history.pushState({ inGame: true }, "");
+
+        // Stop BGM for solo play
+        sounds.bgm.pause();
+        sounds.bgm.currentTime = 0;
 
         document.getElementById('p1-name-display').innerText = "LEGEND";
         document.getElementById('p2-name-display').innerText = "RIVAL";
@@ -281,14 +330,12 @@
         document.getElementById('start-screen').style.display = 'flex';
     });
 
-    // Quit Popup Button Handlers
     document.getElementById('btn-exit-no').addEventListener('click', () => {
         document.getElementById('exit-popup').style.display = 'none';
     });
     document.getElementById('btn-exit-yes').addEventListener('click', () => {
         document.getElementById('exit-popup').style.display = 'none';
         if(window.multiplayerMode && fb.db && !window.gameEnded) {
-            // Forfeit Match, instantly tell the opponent you left
             fb.update(fb.ref(fb.db, `rooms/${window.roomCode}`), { status: 'abandoned', leaver: window.myRole });
         } else {
             location.reload();
@@ -309,7 +356,6 @@
             document.getElementById('waiting-screen').style.display = 'flex';
             document.getElementById('displayCode').innerText = code;
 
-            // Mark room abandoned immediately if Host internet fails while waiting
             fb.onDisconnect(fb.ref(fb.db, `rooms/${code}`)).update({ status: 'abandoned', leaver: window.myRole }); 
             
             fb.onValue(fb.ref(fb.db, `rooms/${code}/status`), (snap) => {
@@ -327,7 +373,10 @@
         forceFullScreen();
         window.myName = document.getElementById('playerName').value.trim() || "P2";
         const code = document.getElementById('roomCodeInput').value.trim();
-        if(!code) return alert("Enter room code!");
+        if(!code) {
+            showCustomAlert("Enter room code!");
+            return;
+        }
 
         fb.get(fb.child(fb.ref(fb.db), `rooms/${code}`)).then((snap) => {
             if(snap.exists() && snap.val().status === 'waiting') {
@@ -337,7 +386,7 @@
                     startMPGame();
                 });
             } else {
-                alert("Room not found or game already started.");
+                showCustomAlert("Room not found or game already started.");
             }
         });
     });
@@ -349,16 +398,18 @@
         window.multiplayerMode = true;
         window.inMatch = true;
         history.pushState({ inGame: true }, "");
+
+        // Stop BGM for multiplayer play
+        sounds.bgm.pause();
+        sounds.bgm.currentTime = 0;
         
         document.getElementById('p1-name-display').innerText = window.myName.toUpperCase();
         document.getElementById('p2-name-display').innerText = window.oppName.toUpperCase();
         initAudio();
 
-        // Refresh disconnect rule for actual gameplay
         fb.onDisconnect(fb.ref(fb.db, `rooms/${window.roomCode}`)).cancel();
         fb.onDisconnect(fb.ref(fb.db, `rooms/${window.roomCode}`)).update({ status: 'abandoned', leaver: window.myRole });
 
-        // Instantly verify if someone exits mid-game (Or disconnects/Loses Wifi)
         fb.onValue(fb.ref(fb.db, `rooms/${window.roomCode}/status`), (snap) => {
             if (window.gameEnded) return;
             if (snap.val() === 'abandoned') {
@@ -377,11 +428,9 @@
             }
         });
 
-        // Sync Position, Jumps, Direction and Opponent Smoke State
         fb.onValue(fb.ref(fb.db, `rooms/${window.roomCode}/${window.oppRole}/state`), (snap) => {
             const s = snap.val();
             if(s) {
-                // Opponent Jump Audio Sync
                 if(p2.isGrounded && s.vy < -5) {
                     playSound('jump');
                 }
@@ -394,21 +443,18 @@
                 p2.hp = s.hp;
                 p2.ability = s.ability;
                 p2.recharge = s.recharge;
-                if(s.dir !== undefined) p2.dir = -s.dir; // MIRROR DIR
+                if(s.dir !== undefined) p2.dir = -s.dir; 
                 if(p2.y < groundY - p2.h - 5) p2.isGrounded = false;
             }
         });
 
         const connectTime = Date.now();
         
-        // Listen for arrows fired by opponent
         fb.onChildAdded(fb.ref(fb.db, `rooms/${window.roomCode}/${window.oppRole}/fire`), (snap) => {
             const ev = snap.val();
             if(ev && ev.ts > connectTime - 1000) {
                 let stX = ev.nx !== undefined ? (width - (ev.nx * width) - p2.w + 17) : (p2.x + 17);
                 let stY = ev.gy !== undefined ? (groundY - ev.gy + 30) : (p2.y + 30);
-                
-                // Calculates proportionally to ensure arrow matches receiver screen height/width exactly
                 let rx = ev.sw ? width / ev.sw : 1;
                 let ry = ev.sh ? height / ev.sh : 1;
                 
@@ -416,7 +462,6 @@
             }
         });
 
-        // Sync Damage Taken from Server (Only my taken damage)
         fb.onChildAdded(fb.ref(fb.db, `rooms/${window.roomCode}/${window.myRole}/hits`), (snap) => {
             const ev = snap.val();
             if(ev && ev.ts > connectTime - 1000) {
@@ -430,28 +475,6 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    // --- AUDIO SYSTEM ---
-    const sounds = {
-        jump: new Audio('jump.mp3'),
-        arrow: new Audio('arrow.mp3'),
-        hit: new Audio('hit.mp3'),
-        bob: new Audio('bob.mp3') // Explosive sound
-    };
-
-    function initAudio() {
-        // Pre-load audio elements on user's first interaction
-        for (let key in sounds) {
-            sounds[key].load();
-        }
-    }
-
-    function playSound(name) {
-        if(sounds[name]) {
-            let s = sounds[name].cloneNode();
-            s.play().catch(e => console.log('Audio play blocked/failed:', e));
-        }
-    }
-
     let width, height, groundY;
     const gravity = 0.5;
     let arrows = [], damageTexts = [], explosions = [], particles = [];
@@ -460,7 +483,6 @@
     const p2 = { x: 0, y: 0, w: 35, h: 70, hp: 1000, vx: 0, vy: 0, isGrounded: false, dir: -1, lastAi: 0, shootAnim: 0, lastShootAng: 0, ability: null, recharge: 0 };
 
     function init() {
-        // Keeps original native mobile size, but adds constraints to perfectly map the PC screen space
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
         if (!isMobile) {
@@ -526,6 +548,7 @@
     let isDrag = false, sx, sy;
     const dragStart = (e, x, y) => { 
         isDrag = true; sx = x; sy = y; p1.pulling = true; 
+        if (p1.ability) playSound('charge');
     };
     const dragMove = (x, y) => { if(isDrag) { p1.pullX = x - sx; p1.pullY = y - sy; } };
     const dragEnd = () => {
@@ -555,13 +578,15 @@
                 fb.push(fb.ref(fb.db, `rooms/${window.roomCode}/${window.myRole}/fire`), {
                     pwr, ang, type: finalType, ts: Date.now(),
                     nx: p1.x / width, gy: groundY - p1.y,
-                    sw: width, sh: height // Synchronize screen dimensions for flawless hits
+                    sw: width, sh: height 
                 });
             }
             spawnArrow(p1, ang, pwr, finalType);
         } else if (!window.multiplayerMode) {
-            const pwr = Math.min(Math.sqrt(150**2 + 100**2)/6, 32);
-            const ang = Math.atan2(-100, 150) + Math.PI;
+            const pullX = Math.min((p2.x - p1.x) / 3, 160);
+            const pullY = 80 + Math.random() * 50; 
+            const pwr = Math.min(Math.sqrt(pullX**2 + pullY**2)/6, 32);
+            const ang = Math.atan2(pullY, pullX) + Math.PI;
             spawnArrow(p2, ang, pwr, 'normal');
         }
     }
@@ -577,7 +602,7 @@
             x: startX, y: startY, 
             vx: Math.cos(ang) * pwr * rx, 
             vy: Math.sin(ang) * pwr * ry, 
-            g: gravity * ry, // Maps vertical trajectory correctly across varied resolutions
+            g: gravity * ry, 
             owner: owner, angle: ang, hit: false, stopped: false, type: type, split: false, life: 0, hasDamaged: false, stuckTo: null, offsetX: 0, offsetY: 0
         });
         playSound('arrow');
@@ -619,33 +644,26 @@
         ctx.strokeStyle = "#334155"; ctx.lineWidth = 4; ctx.lineCap = "round";
         const walk = Math.abs(c.vx) > 0.2 ? Math.sin(Date.now() / 80) * 14 : 0;
         
-        // Draw Head
         ctx.beginPath(); ctx.arc(0, -30, 9, 0, Math.PI*2); ctx.stroke();
         
-        // Face (Eyes and Bandana)
         ctx.fillStyle = c === p1 ? "#0ea5e9" : "#ef4444";
         ctx.strokeStyle = c === p1 ? "#0ea5e9" : "#ef4444";
         ctx.lineWidth = 2;
         
-        // Face Change when drawing back hard
         let isStraining = c.pulling && pullDist > 14;
 
         if (isStraining) {
-            // Angry / Straining eyes \ /
             ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(3, -31); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(8, -34); ctx.lineTo(5, -31); ctx.stroke();
         } else {
-            // Normal eyes
             ctx.beginPath(); ctx.arc(2, -32, 1.5, 0, Math.PI*2); ctx.fill();
             ctx.beginPath(); ctx.arc(6, -32, 1.5, 0, Math.PI*2); ctx.fill();
         }
         
-        // Bandana
-        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(9, -36); ctx.stroke(); // Headband
-        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-14, -38); ctx.stroke(); // Tail 1
-        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-12, -32); ctx.stroke(); // Tail 2
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(9, -36); ctx.stroke(); 
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-14, -38); ctx.stroke(); 
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-12, -32); ctx.stroke(); 
 
-        // Draw Body & Legs
         ctx.strokeStyle = "#334155"; ctx.lineWidth = 4;
         ctx.beginPath(); ctx.moveTo(0, -21); ctx.lineTo(0, 10); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(-10 - walk, 35); ctx.stroke();
@@ -653,15 +671,12 @@
         
         ctx.save(); ctx.rotate(bowAng);
         
-        // Draw Bow
         ctx.strokeStyle = "#78350f"; ctx.lineWidth = 3.5;
         ctx.beginPath(); ctx.arc(20, 0, 28, -1, 1); ctx.stroke();
         
-        // Draw String
         ctx.strokeStyle = "rgba(0,0,0,0.2)"; ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.moveTo(20, -25); ctx.lineTo(-pullDist, 0); ctx.lineTo(20, 25); ctx.stroke();
         
-        // Draw Arms
         ctx.strokeStyle = (c.ability && c.recharge >= 100) ? (c.ability === 'explosive' ? '#ef4444' : '#fbbf24') : "#334155";
         ctx.lineWidth = 4;
         
@@ -684,7 +699,6 @@
         p1.shootAnim = Math.max(0, (p1.shootAnim || 0) - 1);
         p2.shootAnim = Math.max(0, (p2.shootAnim || 0) - 1);
 
-        // Process My Ability Smoke
         if(p1.ability && p1.pulling) {
             p1.recharge = Math.min(100, p1.recharge + 0.6);
             if (p1.recharge < 100) {
@@ -695,7 +709,6 @@
             if(bar) bar.style.height = p1.recharge + "%";
         }
 
-        // Process Opponent Ability Smoke Sync visually
         if(window.multiplayerMode && p2.ability && p2.pulling && p2.recharge < 100) {
             createParticle(p2.x + 17, p2.y + 35, 'smoke');
             if (Math.random() > 0.8) createParticle(p2.x + 17, p2.y + 35, 'spark');
@@ -752,7 +765,7 @@
                             }
                         }
                         
-                        a.hasDamaged = true; // Limits damage to exactly once
+                        a.hasDamaged = true; 
                         
                         if (a.type !== 'explosive') {
                             playSound('hit');
@@ -764,7 +777,7 @@
                             playSound('bob');
                             explosions.push({ x: a.x, y: a.y, r: 10, life: 1.0 });
                             a.stopped = true;
-                            a.y = height + 200; // hide the spent explosive arrow cleanly
+                            a.y = height + 200; 
                         }
                     }
                 });
@@ -799,14 +812,12 @@
                 }
             }
 
-            // Sync Stuck position with the player body perfectly
             if (a.stuckTo) {
                 a.x = a.stuckTo.x + a.offsetX;
                 a.y = a.stuckTo.y + a.offsetY;
             }
         });
 
-        // 3 Arrow Maximum Touch Constraint (Arrows sticking directly in players)
         [p1, p2].forEach(t => {
             let stuckArrows = arrows.filter(a => a.stuckTo === t);
             while (stuckArrows.length > 3) {
@@ -816,7 +827,6 @@
             }
         });
 
-        // 3 Arrow Maximum Miss Constraint (Arrows sticking in Ground)
         const groundArrows = arrows.filter(a => a.stopped && !a.stuckTo && a.type !== 'explosive');
         if (groundArrows.length > 3) {
             for(let i=0; i<groundArrows.length - 3; i++) {
@@ -829,7 +839,6 @@
         damageTexts.forEach((d, i) => { d.y -= 1; d.life -= 0.02; if(d.life <= 0) damageTexts.splice(i, 1); });
         updateHud();
 
-        // Standard Match End conditions
         if (p1.hp <= 0 || p2.hp <= 0) {
             window.gameEnded = true;
             document.getElementById('end-screen').style.display = 'flex';
@@ -838,10 +847,8 @@
                 document.getElementById('end-title').innerText = "DRAW!";
             } else if (p1.hp <= 0) {
                 document.getElementById('end-title').innerText = "YOU LOSE!";
-                // Result saved by opponent (P2)
             } else {
                 document.getElementById('end-title').innerText = "YOU WIN!";
-                // Automatically save result to DB when winning normally
                 if (window.multiplayerMode) saveResult(window.myName, window.oppName);
             }
             
