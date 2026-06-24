@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Archers: Elite Combat</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glass: rgba(255, 255, 255, 0.3);
+            --hp-high: #22c55e;
+            --hp-mid: #eab308;
+            --hp-low: #ef4444;
+            --charge-color: #fbbf24;
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background: #0f172a;
+            font-family: 'Orbitron', sans-serif;
+            touch-action: none; user-select: none;
+        }
+
+        #rotate-overlay {
+            position: fixed; inset: 0; background: #0f172a; color: white;
+            z-index: 4000; display: none; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+        @media (orientation: portrait) { #rotate-overlay { display: flex; } }
+
+        #game-container { position: relative; width: 100vw; height: 100vh; background: #87CEEB; display: flex; justify-content: center; }
+        canvas { display: block; }
+
+        .hud {
+            position: absolute; top: 15px; left: 5%; width: 90%;
+            display: flex; justify-content: space-between; pointer-events: none;
+        }
+        
+        .hp-card {
+            width: 150px; padding: 6px; background: var(--glass);
+            backdrop-filter: blur(8px); border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        .hp-info { display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; letter-spacing: 0.5px; }
+        .hp-bar { height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+        .hp-fill { height: 100%; width: 100%; transition: width 0.3s ease-out, background-color 0.3s; }
+
+        .ability-row {
+            display: flex; gap: 8px; margin-top: 8px; pointer-events: auto;
+        }
+        .ability-btn {
+            width: 34px; height: 34px; background: var(--glass);
+            border-radius: 6px; border: 2px solid white; position: relative;
+            cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center;
+            transition: 0.2s;
+        }
+        .ability-btn.selected { border-color: #fbbf24; box-shadow: 0 0 10px #fbbf24; background: rgba(251, 191, 36, 0.4); }
+        .charge-overlay {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            background: var(--charge-color); opacity: 0.8; height: 0%;
+        }
+        .ability-btn svg { width: 20px; height: 20px; z-index: 2; pointer-events: none; }
+
+        .controls { position: absolute; bottom: 25px; left: 25px; display: flex; gap: 15px; }
+        .btn {
+            width: 65px; height: 65px; background: var(--glass);
+            backdrop-filter: blur(10px); border: 2px solid white;
+            border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            cursor: pointer; pointer-events: auto; transition: 0.1s;
+        }
+        .btn:active { background: rgba(255,255,255,0.6); transform: scale(0.9); }
+        .btn svg { width: 30px; height: 30px; fill: #1e293b; }
+        
+        #jump-btn { position: absolute; bottom: 25px; right: 25px; width: 90px; border-radius: 15px; }
+
+        .fullscreen-menu {
+            position: fixed; inset: 0; background: #0f172a; color: white;
+            z-index: 1000; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+
+        .menu-btn {
+            background: rgba(255, 255, 255, 0.1); border: 2px solid white; color: white;
+            font-family: 'Orbitron', sans-serif; font-size: 1.2rem;
+            padding: 15px 40px; margin: 10px; border-radius: 8px;
+            cursor: pointer; transition: 0.2s; text-transform: uppercase;
+            letter-spacing: 2px; width: 260px;
+        }
+
+        .menu-btn:hover { background: rgba(255,255,255,0.3); }
+        .menu-btn:active { transform: scale(0.95); }
+
+        .input-field {
+            padding: 15px; font-size: 1.2rem; margin-bottom: 20px;
+            text-align: center; border-radius: 8px; border: 2px solid white;
+            background: rgba(255,255,255,0.1); color: white; outline: none;
+            font-family: 'Orbitron', sans-serif; width: 230px; text-transform: uppercase;
+        }
+        .input-field::placeholder { color: rgba(255,255,255,0.5); }
+    </style>
+</head>
+<body>
+
+<div id="rotate-overlay"><h1>🔄 Rotate to Landscape</h1></div>
+
+<!-- Main Menu -->
+<div id="start-screen" class="fullscreen-menu">
+    <h1 style="margin: 0 0 40px 0; font-size: 4rem; letter-spacing: 5px;">ARCHERS</h1>
+    <button class="menu-btn" id="btn-solo">Play Solo</button>
+    <button class="menu-btn" id="btn-mp">Multiplayer</button>
+</div>
+
+<!-- Multiplayer Menu -->
+<div id="mp-screen" class="fullscreen-menu" style="display: none;">
+    <h1 style="font-size: 3rem; margin-bottom: 20px;">MULTIPLAYER</h1>
+    <input type="text" id="playerName" class="input-field" placeholder="Enter Your Name" maxlength="10">
+    <button class="menu-btn" id="btn-create">Create Room</button>
+    
+    <div style="margin: 20px 0; width: 260px; height: 2px; background: rgba(255,255,255,0.3);"></div>
+    
+    <input type="text" id="roomCodeInput" class="input-field" placeholder="Room Code" maxlength="4">
+    <button class="menu-btn" id="btn-join">Join Room</button>
+    <button class="menu-btn" id="btn-back-main" style="margin-top: 30px; background: rgba(239, 68, 68, 0.3);">Back</button>
+</div>
+
+<!-- Waiting Screen -->
+<div id="waiting-screen" class="fullscreen-menu" style="display: none;">
+    <h2 style="font-size: 2rem;">Room Code</h2>
+    <h1 id="displayCode" style="font-size: 5rem; color: #fbbf24; margin: 10px 0; letter-spacing: 5px;"></h1>
+    <p style="opacity: 0.8; margin-top: 20px; font-size: 1.2rem;">Waiting for opponent to join...</p>
+    <button class="menu-btn" id="btn-cancel-wait" style="margin-top: 40px; background: rgba(239, 68, 68, 0.3);">Cancel</button>
+</div>
+
+<!-- Exit Confirmation Popup -->
+<div id="exit-popup" class="fullscreen-menu" style="display: none; z-index: 5000; background: rgba(15,23,42,0.95);">
+    <h2 style="font-size: 2.5rem; margin-bottom: 30px; text-transform: uppercase;">Do You Want to Quit?</h2>
+    <div style="display: flex; gap: 20px;">
+        <button class="menu-btn" id="btn-exit-yes" style="background: rgba(239, 68, 68, 0.4); width: 140px;">Yes</button>
+        <button class="menu-btn" id="btn-exit-no" style="background: rgba(34, 197, 94, 0.4); width: 140px;">No</button>
+    </div>
+</div>
+
+<!-- End Game Screen -->
+<div id="end-screen" class="fullscreen-menu" style="display: none; z-index: 3000; background: rgba(15,23,42,0.9);">
+    <h1 id="end-title" style="font-size: 4rem; margin-bottom: 20px;"></h1>
+    <button class="menu-btn" id="btn-main-menu-end">Main Menu</button>
+</div>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="hud">
+        <div>
+            <div class="hp-card">
+                <div class="hp-info">
+                    <span style="color: white;" id="p1-name-display">LEGEND</span>
+                    <span id="p1-hp-num">1000</span>
+                </div>
+                <div class="hp-bar"><div id="p1-hp" class="hp-fill"></div></div>
+            </div>
+            <div class="ability-row">
+                <div class="ability-btn" id="multi-btn">
+                    <div id="multi-charge" class="charge-overlay"></div>
+                    <svg viewBox="0 0 24 24"><path d="M2,12L4,11L2,10M22,12L20,11L22,10M12,2L11,4L10,2M12,22L11,20L10,22" stroke="black" fill="none" stroke-width="2"/></svg>
+                </div>
+                <div class="ability-btn" id="expo-btn">
+                    <div id="expo-charge" class="charge-overlay"></div>
+                    <svg viewBox="0 0 24 24"><path d="M19,11H15V15H13V11H9V9H13V5H15V9H19V11M12,2L4.5,20.29L12,18L19.5,20.29L12,2Z" fill="#700"/></svg>
+                </div>
+            </div>
+        </div>
+        
+        <div class="hp-card">
+            <div class="hp-info">
+                <span id="p2-hp-num">1000</span>
+                <span style="color: white;" id="p2-name-display">RIVAL</span>
+            </div>
+            <div class="hp-bar"><div id="p2-hp" class="hp-fill"></div></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="btn" id="btn-left"><svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg></div>
+        <div class="btn" id="btn-right"><svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+    </div>
+
+    <div class="btn" id="jump-btn">
+        <svg viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCyE1coLVha22Y_5E71n4FW1VQNHf3s81Q",
+        authDomain: "vs-1-12110.firebaseapp.com",
+        databaseURL: "https://vs-1-12110-default-rtdb.firebaseio.com",
+        projectId: "vs-1-12110",
+        storageBucket: "vs-1-12110.firebasestorage.app",
+        messagingSenderId: "512391960635",
+        appId: "1:512391960635:web:1ebc6d07d5bbd5adcca41e"
+    };
+
+    let fb = {}; 
+    window.multiplayerMode = false;
+    window.myRole = null; window.oppRole = null; window.roomCode = null;
+    window.myName = ""; window.oppName = "";
+    window.lastSyncTime = 0; window.gameEnded = false; 
+    window.inMatch = false; // Tracks if user is actively in a game
+
+    function saveResult(winnerName, loserName) {
+        if(fb.db) {
+            // Strip any Firebase-invalid characters from the winner name to ensure safe key generation
+            let safeName = winnerName.replace(/[.#$\[\]]/g, '');
+            // Saves explicitly to database under: saves/WINNER_NAME/... with Room Code
+            fb.push(fb.ref(fb.db, `saves/${safeName}`), { 
+                winnerName: winnerName, 
+                loserName: loserName, 
+                roomCode: window.roomCode || "SOLO",
+                timestamp: Date.now() 
+            });
+        }
+    }
+
+    // Intercept hardware back button on phones
+    window.addEventListener('popstate', (e) => {
+        if (window.inMatch && !window.gameEnded) {
+            document.getElementById('exit-popup').style.display = 'flex';
+            // Push state again so the user remains on the game page while deciding
+            history.pushState({ inGame: true }, "");
+        }
+    });
+
+    // Helper to force full screen on interaction
+    function forceFullScreen() {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        }
+    }
+
+    async function connectFirebase() {
+        if(fb.db) return true;
+        try {
+            const appMod = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
+            const dbMod = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js");
+            const app = appMod.initializeApp(firebaseConfig);
+            fb = { ...dbMod, db: dbMod.getDatabase(app) };
+            return true;
+        } catch(err) {
+            console.error(err);
+            alert("Could not connect to Multiplayer! Please check your connection.");
+            return false;
+        }
+    }
+
+    document.getElementById('btn-solo').addEventListener('click', () => {
+        forceFullScreen();
+        document.getElementById('start-screen').style.display = 'none';
+        
+        window.inMatch = true;
+        history.pushState({ inGame: true }, "");
+
+        document.getElementById('p1-name-display').innerText = "LEGEND";
+        document.getElementById('p2-name-display').innerText = "RIVAL";
+        initAudio();
+    });
+
+    document.getElementById('btn-mp').addEventListener('click', async () => {
+        forceFullScreen();
+        const btn = document.getElementById('btn-mp');
+        btn.innerText = "Connecting...";
+        const success = await connectFirebase();
+        btn.innerText = "Multiplayer";
+        if(success) {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('mp-screen').style.display = 'flex';
+        }
+    });
+
+    document.getElementById('btn-back-main').addEventListener('click', () => {
+        document.getElementById('mp-screen').style.display = 'none';
+        document.getElementById('start-screen').style.display = 'flex';
+    });
+
+    // Quit Popup Button Handlers
+    document.getElementById('btn-exit-no').addEventListener('click', () => {
+        document.getElementById('exit-popup').style.display = 'none';
+    });
+    document.getElementById('btn-exit-yes').addEventListener('click', () => {
+        document.getElementById('exit-popup').style.display = 'none';
+        if(window.multiplayerMode && fb.db && !window.gameEnded) {
+            // Forfeit Match, instantly tell the opponent you left
+            fb.update(fb.ref(fb.db, `rooms/${window.roomCode}`), { status: 'abandoned', leaver: window.myRole });
+        } else {
+            location.reload();
+        }
+    });
+
+    document.getElementById('btn-cancel-wait').addEventListener('click', () => location.reload());
+    document.getElementById('btn-main-menu-end').addEventListener('click', () => location.reload());
+
+    document.getElementById('btn-create').addEventListener('click', () => {
+        forceFullScreen();
+        window.myName = document.getElementById('playerName').value.trim() || "P1";
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        window.myRole = 'host'; window.oppRole = 'guest'; window.roomCode = code;
+
+        fb.set(fb.ref(fb.db, `rooms/${code}`), { status: 'waiting', host: { name: window.myName } }).then(() => {
+            document.getElementById('mp-screen').style.display = 'none';
+            document.getElementById('waiting-screen').style.display = 'flex';
+            document.getElementById('displayCode').innerText = code;
+
+            // Mark room abandoned immediately if Host internet fails while waiting
+            fb.onDisconnect(fb.ref(fb.db, `rooms/${code}`)).update({ status: 'abandoned', leaver: window.myRole }); 
+            
+            fb.onValue(fb.ref(fb.db, `rooms/${code}/status`), (snap) => {
+                if(snap.val() === 'playing') {
+                    fb.get(fb.child(fb.ref(fb.db), `rooms/${code}/guest`)).then((gsnap) => {
+                        if(gsnap.exists()) window.oppName = gsnap.val().name;
+                        startMPGame();
+                    });
+                }
+            });
+        });
+    });
+
+    document.getElementById('btn-join').addEventListener('click', () => {
+        forceFullScreen();
+        window.myName = document.getElementById('playerName').value.trim() || "P2";
+        const code = document.getElementById('roomCodeInput').value.trim();
+        if(!code) return alert("Enter room code!");
+
+        fb.get(fb.child(fb.ref(fb.db), `rooms/${code}`)).then((snap) => {
+            if(snap.exists() && snap.val().status === 'waiting') {
+                window.myRole = 'guest'; window.oppRole = 'host'; window.roomCode = code;
+                window.oppName = snap.val().host.name;
+                fb.update(fb.ref(fb.db, `rooms/${code}`), { status: 'playing', guest: { name: window.myName } }).then(() => {
+                    startMPGame();
+                });
+            } else {
+                alert("Room not found or game already started.");
+            }
+        });
+    });
+
+    function startMPGame() {
+        document.getElementById('mp-screen').style.display = 'none';
+        document.getElementById('waiting-screen').style.display = 'none';
+        
+        window.multiplayerMode = true;
+        window.inMatch = true;
+        history.pushState({ inGame: true }, "");
+        
+        document.getElementById('p1-name-display').innerText = window.myName.toUpperCase();
+        document.getElementById('p2-name-display').innerText = window.oppName.toUpperCase();
+        initAudio();
+
+        // Refresh disconnect rule for actual gameplay
+        fb.onDisconnect(fb.ref(fb.db, `rooms/${window.roomCode}`)).cancel();
+        fb.onDisconnect(fb.ref(fb.db, `rooms/${window.roomCode}`)).update({ status: 'abandoned', leaver: window.myRole });
+
+        // Instantly verify if someone exits mid-game (Or disconnects/Loses Wifi)
+        fb.onValue(fb.ref(fb.db, `rooms/${window.roomCode}/status`), (snap) => {
+            if (window.gameEnded) return;
+            if (snap.val() === 'abandoned') {
+                window.gameEnded = true;
+                fb.get(fb.child(fb.ref(fb.db), `rooms/${window.roomCode}/leaver`)).then(leaverSnap => {
+                    let leaver = leaverSnap.val();
+                    document.getElementById('end-screen').style.display = 'flex';
+                    if (leaver === window.myRole) {
+                        document.getElementById('end-title').innerText = "YOU LOSE!";
+                    } else {
+                        document.getElementById('end-title').innerText = "OPPONENT LEFT!\nYOU WIN!";
+                        document.getElementById('end-title').style.fontSize = "3rem";
+                        saveResult(window.myName, window.oppName);
+                    }
+                });
+            }
+        });
+
+        // Sync Position, Jumps, Direction and Opponent Smoke State
+        fb.onValue(fb.ref(fb.db, `rooms/${window.roomCode}/${window.oppRole}/state`), (snap) => {
+            const s = snap.val();
+            if(s) {
+                // Opponent Jump Audio Sync
+                if(p2.isGrounded && s.vy < -5) {
+                    playSound('jump');
+                }
+
+                p2.x = width - (s.nx * width) - p2.w;
+                if(s.gy !== undefined) p2.y = groundY - s.gy; 
+                p2.vx = -s.vx; p2.vy = s.vy;
+                p2.pulling = s.pulling;
+                p2.pullX = -s.pullX; p2.pullY = s.pullY;
+                p2.hp = s.hp;
+                p2.ability = s.ability;
+                p2.recharge = s.recharge;
+                if(s.dir !== undefined) p2.dir = -s.dir; // MIRROR DIR
+                if(p2.y < groundY - p2.h - 5) p2.isGrounded = false;
+            }
+        });
+
+        const connectTime = Date.now();
+        
+        // Listen for arrows fired by opponent
+        fb.onChildAdded(fb.ref(fb.db, `rooms/${window.roomCode}/${window.oppRole}/fire`), (snap) => {
+            const ev = snap.val();
+            if(ev && ev.ts > connectTime - 1000) {
+                let stX = ev.nx !== undefined ? (width - (ev.nx * width) - p2.w + 17) : (p2.x + 17);
+                let stY = ev.gy !== undefined ? (groundY - ev.gy + 30) : (p2.y + 30);
+                
+                // Calculates proportionally to ensure arrow matches receiver screen height/width exactly
+                let rx = ev.sw ? width / ev.sw : 1;
+                let ry = ev.sh ? height / ev.sh : 1;
+                
+                spawnArrow(p2, Math.PI - ev.ang, ev.pwr, ev.type, stX, stY, rx, ry);
+            }
+        });
+
+        // Sync Damage Taken from Server (Only my taken damage)
+        fb.onChildAdded(fb.ref(fb.db, `rooms/${window.roomCode}/${window.myRole}/hits`), (snap) => {
+            const ev = snap.val();
+            if(ev && ev.ts > connectTime - 1000) {
+                p1.hp = Math.max(0, p1.hp - ev.dmg);
+                damageTexts.push({ x: p1.x + 17, y: p1.y, val: ev.dmg, color: "red", life: 1.0 });
+            }
+        });
+    }
+
+    // ----- GAME ENGINE ----- //
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // --- AUDIO SYSTEM ---
+    const sounds = {
+        jump: new Audio('jump.mp3'),
+        arrow: new Audio('arrow.mp3'),
+        hit: new Audio('hit.mp3'),
+        bob: new Audio('bob.mp3') // Explosive sound
+    };
+
+    function initAudio() {
+        // Pre-load audio elements on user's first interaction
+        for (let key in sounds) {
+            sounds[key].load();
+        }
+    }
+
+    function playSound(name) {
+        if(sounds[name]) {
+            let s = sounds[name].cloneNode();
+            s.play().catch(e => console.log('Audio play blocked/failed:', e));
+        }
+    }
+
+    let width, height, groundY;
+    const gravity = 0.5;
+    let arrows = [], damageTexts = [], explosions = [], particles = [];
+    
+    const p1 = { x: 100, y: 0, w: 35, h: 70, hp: 1000, vx: 0, vy: 0, isGrounded: false, dir: 1, pulling: false, pullX: 0, pullY: 0, ability: null, recharge: 0, shootAnim: 0, lastShootAng: 0 };
+    const p2 = { x: 0, y: 0, w: 35, h: 70, hp: 1000, vx: 0, vy: 0, isGrounded: false, dir: -1, lastAi: 0, shootAnim: 0, lastShootAng: 0, ability: null, recharge: 0 };
+
+    function init() {
+        // Keeps original native mobile size, but adds constraints to perfectly map the PC screen space
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (!isMobile) {
+            width = canvas.width = Math.min(window.innerWidth, 1200);
+            height = canvas.height = window.innerHeight;
+            canvas.style.margin = "0 auto";
+        } else {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            canvas.style.margin = "0";
+        }
+
+        groundY = height - 80;
+
+        if (p1.y === 0 || p1.y > groundY) { p1.y = groundY - p1.h; }
+        if (p2.x === 0 || p2.x >= width - 150) { p2.x = width - 150; }
+        if (p2.y === 0 || p2.y > groundY) { p2.y = groundY - p2.h; }
+    }
+    window.addEventListener('resize', init);
+    init();
+
+    const selectAbility = (type, btnId) => {
+        if(p1.ability === type) {
+            p1.ability = null; document.getElementById(btnId).classList.remove('selected');
+        } else {
+            p1.ability = type;
+            document.querySelectorAll('.ability-btn').forEach(b => b.classList.remove('selected'));
+            document.getElementById(btnId).classList.add('selected');
+        }
+        p1.recharge = 0;
+        document.getElementById('multi-charge').style.height = "0%";
+        document.getElementById('expo-charge').style.height = "0%";
+    };
+    document.getElementById('multi-btn').onclick = () => selectAbility('multi', 'multi-btn');
+    document.getElementById('expo-btn').onclick = () => selectAbility('explosive', 'expo-btn');
+
+    const input = { left: false, right: false };
+    const setupBtn = (btnId, key) => {
+        const btn = document.getElementById(btnId);
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); input[key] = true; }, {passive: false});
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); input[key] = false; }, {passive: false});
+        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); input[key] = false; }, {passive: false});
+        btn.addEventListener('mousedown', () => { input[key] = true; });
+        btn.addEventListener('mouseup', () => { input[key] = false; });
+        btn.addEventListener('mouseleave', () => { input[key] = false; });
+    };
+    setupBtn('btn-left', 'left'); setupBtn('btn-right', 'right');
+    
+    const triggerJump = (e) => { 
+        if(e) e.preventDefault(); 
+        if(p1.isGrounded) { 
+            p1.vy = -10; p1.isGrounded = false; playSound('jump'); 
+            if (window.multiplayerMode && fb.db) {
+                fb.set(fb.ref(fb.db, `rooms/${window.roomCode}/${window.myRole}/state`), {
+                    nx: p1.x / width, gy: groundY - p1.y, vx: p1.vx, vy: p1.vy, pullX: p1.pullX, pullY: p1.pullY, pulling: p1.pulling, hp: p1.hp, ability: p1.ability || null, recharge: p1.recharge, dir: p1.dir
+                });
+            }
+        } 
+    };
+    document.getElementById('jump-btn').addEventListener('touchstart', triggerJump, {passive: false});
+    document.getElementById('jump-btn').addEventListener('mousedown', triggerJump);
+
+    let isDrag = false, sx, sy;
+    const dragStart = (e, x, y) => { 
+        isDrag = true; sx = x; sy = y; p1.pulling = true; 
+    };
+    const dragMove = (x, y) => { if(isDrag) { p1.pullX = x - sx; p1.pullY = y - sy; } };
+    const dragEnd = () => {
+        if(isDrag) {
+            if(Math.sqrt(p1.pullX**2 + p1.pullY**2) > 10) fire(p1);
+            isDrag = false; p1.pulling = false; p1.pullX = 0; p1.pullY = 0;
+            p1.recharge = 0;
+            document.getElementById('multi-charge').style.height = "0%";
+            document.getElementById('expo-charge').style.height = "0%";
+        }
+    };
+
+    canvas.addEventListener('mousedown', e => dragStart(e, e.clientX, e.clientY));
+    canvas.addEventListener('mousemove', e => dragMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', dragEnd);
+    canvas.addEventListener('touchstart', e => dragStart(e, e.touches[0].clientX, e.touches[0].clientY), {passive: false});
+    canvas.addEventListener('touchmove', e => { if(isDrag) { e.preventDefault(); dragMove(e.touches[0].clientX, e.touches[0].clientY); } }, {passive: false});
+    window.addEventListener('touchend', dragEnd);
+
+    function fire(who) {
+        if (who === p1) {
+            const pwr = Math.min(Math.sqrt(p1.pullX**2 + p1.pullY**2)/6, 32);
+            const ang = Math.atan2(p1.pullY, p1.pullX) + Math.PI;
+            const finalType = (p1.ability && p1.recharge >= 100) ? p1.ability : 'normal';
+
+            if (window.multiplayerMode && fb.db) {
+                fb.push(fb.ref(fb.db, `rooms/${window.roomCode}/${window.myRole}/fire`), {
+                    pwr, ang, type: finalType, ts: Date.now(),
+                    nx: p1.x / width, gy: groundY - p1.y,
+                    sw: width, sh: height // Synchronize screen dimensions for flawless hits
+                });
+            }
+            spawnArrow(p1, ang, pwr, finalType);
+        } else if (!window.multiplayerMode) {
+            const pwr = Math.min(Math.sqrt(150**2 + 100**2)/6, 32);
+            const ang = Math.atan2(-100, 150) + Math.PI;
+            spawnArrow(p2, ang, pwr, 'normal');
+        }
+    }
+
+    function spawnArrow(owner, ang, pwr, type, sx, sy, rx = 1, ry = 1) {
+        owner.shootAnim = 15; 
+        owner.lastShootAng = owner.dir === 1 ? ang : -ang + Math.PI;
+        
+        let startX = sx !== undefined ? sx : owner.x + 17;
+        let startY = sy !== undefined ? sy : owner.y + 30;
+        
+        arrows.push({ 
+            x: startX, y: startY, 
+            vx: Math.cos(ang) * pwr * rx, 
+            vy: Math.sin(ang) * pwr * ry, 
+            g: gravity * ry, // Maps vertical trajectory correctly across varied resolutions
+            owner: owner, angle: ang, hit: false, stopped: false, type: type, split: false, life: 0, hasDamaged: false, stuckTo: null, offsetX: 0, offsetY: 0
+        });
+        playSound('arrow');
+    }
+
+    function createParticle(x, y, type) {
+        if (type === 'smoke') particles.push({ x: x + (Math.random()-0.5)*30, y: y + (Math.random()-0.5)*50, vx: (Math.random()-0.5)*1, vy: -Math.random()*2, size: Math.random()*15 + 5, life: 1.0, color: 'rgba(255, 0, 0, 0.4)', type: 'smoke' });
+        else particles.push({ x: x + (Math.random()-0.5)*40, y: y + (Math.random()-0.5)*70, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, size: 2, life: 1.0, color: '#00ffff', type: 'spark' });
+    }
+
+    function updateHud() {
+        [p1, p2].forEach((p, idx) => {
+            const id = idx === 0 ? 'p1' : 'p2';
+            const bar = document.getElementById(`${id}-hp`);
+            const num = document.getElementById(`${id}-hp-num`);
+            let color = p.hp > 600 ? 'var(--hp-high)' : (p.hp > 300 ? 'var(--hp-mid)' : 'var(--hp-low)');
+            bar.style.width = (p.hp/10) + "%"; bar.style.backgroundColor = color;
+            num.innerText = p.hp; num.style.color = color;
+        });
+    }
+
+    function drawStickman(c) {
+        ctx.save(); ctx.translate(c.x + 17, c.y + 35); ctx.scale(c.dir, 1);
+        
+        let bowAng = 0, pullDist = 0;
+        if(c.pulling) {
+            const actualAng = Math.atan2(c.pullY, c.pullX) + Math.PI;
+            bowAng = c.dir === 1 ? actualAng : -actualAng + Math.PI;
+            c.lastShootAng = bowAng;
+            pullDist = Math.min(Math.sqrt(c.pullX**2 + c.pullY**2)/5, 20);
+        } else if (c.shootAnim > 0) {
+            bowAng = c.lastShootAng || 0;
+            pullDist = -25;
+        } else {
+            bowAng = Math.PI / 6; 
+            pullDist = 0;
+        }
+
+        ctx.strokeStyle = "#334155"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        const walk = Math.abs(c.vx) > 0.2 ? Math.sin(Date.now() / 80) * 14 : 0;
+        
+        // Draw Head
+        ctx.beginPath(); ctx.arc(0, -30, 9, 0, Math.PI*2); ctx.stroke();
+        
+        // Face (Eyes and Bandana)
+        ctx.fillStyle = c === p1 ? "#0ea5e9" : "#ef4444";
+        ctx.strokeStyle = c === p1 ? "#0ea5e9" : "#ef4444";
+        ctx.lineWidth = 2;
+        
+        // Face Change when drawing back hard
+        let isStraining = c.pulling && pullDist > 14;
+
+        if (isStraining) {
+            // Angry / Straining eyes \ /
+            ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(3, -31); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(8, -34); ctx.lineTo(5, -31); ctx.stroke();
+        } else {
+            // Normal eyes
+            ctx.beginPath(); ctx.arc(2, -32, 1.5, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(6, -32, 1.5, 0, Math.PI*2); ctx.fill();
+        }
+        
+        // Bandana
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(9, -36); ctx.stroke(); // Headband
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-14, -38); ctx.stroke(); // Tail 1
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-12, -32); ctx.stroke(); // Tail 2
+
+        // Draw Body & Legs
+        ctx.strokeStyle = "#334155"; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(0, -21); ctx.lineTo(0, 10); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(-10 - walk, 35); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(10 + walk, 35); ctx.stroke();
+        
+        ctx.save(); ctx.rotate(bowAng);
+        
+        // Draw Bow
+        ctx.strokeStyle = "#78350f"; ctx.lineWidth = 3.5;
+        ctx.beginPath(); ctx.arc(20, 0, 28, -1, 1); ctx.stroke();
+        
+        // Draw String
+        ctx.strokeStyle = "rgba(0,0,0,0.2)"; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(20, -25); ctx.lineTo(-pullDist, 0); ctx.lineTo(20, 25); ctx.stroke();
+        
+        // Draw Arms
+        ctx.strokeStyle = (c.ability && c.recharge >= 100) ? (c.ability === 'explosive' ? '#ef4444' : '#fbbf24') : "#334155";
+        ctx.lineWidth = 4;
+        
+        if (c.shootAnim > 0 && !c.pulling) {
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(25, 0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(0, 10); ctx.stroke();
+        } else if (c.pulling) {
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(20, 0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(-pullDist, 0); ctx.stroke();
+        } else {
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(20, 0); ctx.stroke();
+        }
+        
+        ctx.restore(); ctx.restore();
+    }
+
+    function update() {
+        if(window.gameEnded) return;
+
+        p1.shootAnim = Math.max(0, (p1.shootAnim || 0) - 1);
+        p2.shootAnim = Math.max(0, (p2.shootAnim || 0) - 1);
+
+        // Process My Ability Smoke
+        if(p1.ability && p1.pulling) {
+            p1.recharge = Math.min(100, p1.recharge + 0.6);
+            if (p1.recharge < 100) {
+                createParticle(p1.x + 17, p1.y + 35, 'smoke');
+                if (Math.random() > 0.8) createParticle(p1.x + 17, p1.y + 35, 'spark');
+            }
+            const bar = document.getElementById(p1.ability === 'multi' ? 'multi-charge' : 'expo-charge');
+            if(bar) bar.style.height = p1.recharge + "%";
+        }
+
+        // Process Opponent Ability Smoke Sync visually
+        if(window.multiplayerMode && p2.ability && p2.pulling && p2.recharge < 100) {
+            createParticle(p2.x + 17, p2.y + 35, 'smoke');
+            if (Math.random() > 0.8) createParticle(p2.x + 17, p2.y + 35, 'spark');
+        }
+
+        if(input.left) { p1.vx = -4; p1.dir = -1; } else if(input.right) { p1.vx = 4; p1.dir = 1; } else p1.vx *= 0.7;
+        p1.x += p1.vx; p1.y += p1.vy; p1.vy += gravity;
+        
+        if (!window.multiplayerMode) {
+            p2.x += p2.vx; p2.y += p2.vy; p2.vy += gravity;
+            if(Date.now() - p2.lastAi > 2875) { fire(p2); p2.lastAi = Date.now(); }
+        } else {
+            p2.y += p2.vy; p2.vy += gravity;
+            if (Date.now() - window.lastSyncTime > 30 && fb.db) {
+                window.lastSyncTime = Date.now();
+                fb.set(fb.ref(fb.db, `rooms/${window.roomCode}/${window.myRole}/state`), {
+                    nx: p1.x / width, gy: groundY - p1.y, vx: p1.vx, vy: p1.vy, pullX: p1.pullX, pullY: p1.pullY, pulling: p1.pulling, hp: p1.hp, ability: p1.ability || null, recharge: p1.recharge, dir: p1.dir
+                });
+            }
+        }
+
+        p1.x = Math.max(0, Math.min(width - p1.w, p1.x)); p2.x = Math.max(0, Math.min(width - p2.w, p2.x));
+        if(p1.y > groundY - p1.h) { p1.y = groundY - p1.h; p1.vy = 0; p1.isGrounded = true; }
+        if(p2.y > groundY - p2.h) { p2.y = groundY - p2.h; p2.vy = 0; p2.isGrounded = true; }
+
+        arrows.forEach((a) => {
+            if(!a.stopped && !a.stuckTo) {
+                a.x += a.vx; a.y += a.vy; a.vy += a.g; a.angle = Math.atan2(a.vy, a.vx); a.life++;
+                if(a.type === 'multi' && !a.split && a.life > 8) {
+                    a.split = true;
+                    for(let i = -2; i <= 2; i++) {
+                        if(i !== 0) arrows.push({...a, vx: a.vx, vy: a.vy + (i * 1.5 * (a.g/gravity)), type: 'normal', split: true, hasDamaged: false});
+                    }
+                }
+                [p1, p2].forEach(t => {
+                    if(!a.hasDamaged && a.owner !== t && a.x > t.x && a.x < t.x + t.w && a.y > t.y && a.y < t.y + t.h) {
+                        let hitY = a.y - t.y; let speed = Math.sqrt(a.vx**2 + a.vy**2);
+                        let dmg = a.type === 'explosive' ? 150 : (hitY < 18 ? Math.floor(100 + Math.min(20, (speed / 32) * 20)) : (hitY < 45 ? 25 : 21));
+                        
+                        if (!window.multiplayerMode) {
+                            t.hp = Math.max(0, t.hp - dmg);
+                            damageTexts.push({ x: t.x + 17, y: t.y, val: dmg, color: hitY < 18 ? "red" : "white", life: 1.0 });
+                        } else {
+                            if (a.owner === p1) { 
+                                if (t === p2) {
+                                    if(fb.db) fb.push(fb.ref(fb.db, `rooms/${window.roomCode}/${window.oppRole}/hits`), { dmg: dmg, ts: Date.now() });
+                                    p2.hp = Math.max(0, p2.hp - dmg);
+                                    damageTexts.push({ x: p2.x + 17, y: p2.y, val: dmg, color: hitY < 18 ? "red" : "white", life: 1.0 });
+                                }
+                                if (t === p1) {
+                                    p1.hp = Math.max(0, p1.hp - dmg);
+                                    damageTexts.push({ x: p1.x + 17, y: p1.y, val: dmg, color: hitY < 18 ? "red" : "white", life: 1.0 });
+                                }
+                            }
+                        }
+                        
+                        a.hasDamaged = true; // Limits damage to exactly once
+                        
+                        if (a.type !== 'explosive') {
+                            playSound('hit');
+                            a.stuckTo = t;
+                            a.offsetX = a.x - t.x;
+                            a.offsetY = a.y - t.y;
+                            a.stopped = true;
+                        } else {
+                            playSound('bob');
+                            explosions.push({ x: a.x, y: a.y, r: 10, life: 1.0 });
+                            a.stopped = true;
+                            a.y = height + 200; // hide the spent explosive arrow cleanly
+                        }
+                    }
+                });
+                if(a.y > groundY && !a.stopped) { 
+                    a.stopped = true; a.y = groundY; 
+                    if(a.type === 'explosive' && !a.hasDamaged) {
+                        playSound('bob');
+                        explosions.push({ x: a.x, y: a.y, r: 10, life: 1.0 });
+                        [p1, p2].forEach(p => {
+                            if(Math.hypot(p.x + 17 - a.x, p.y + 35 - a.y) < 60) {
+                                let dmg = 80;
+                                if (!window.multiplayerMode) {
+                                    p.hp = Math.max(0, p.hp - dmg);
+                                    damageTexts.push({ x: p.x + 17, y: p.y, val: dmg, color: "orange", life: 1.0 });
+                                } else {
+                                    if (a.owner === p1) {
+                                        if (p === p2) {
+                                            if(fb.db) fb.push(fb.ref(fb.db, `rooms/${window.roomCode}/${window.oppRole}/hits`), { dmg: dmg, ts: Date.now() });
+                                            p2.hp = Math.max(0, p2.hp - dmg);
+                                            damageTexts.push({ x: p.x + 17, y: p.y, val: dmg, color: "orange", life: 1.0 });
+                                        }
+                                        if (p === p1) {
+                                            p1.hp = Math.max(0, p1.hp - dmg);
+                                            damageTexts.push({ x: p.x + 17, y: p.y, val: dmg, color: "orange", life: 1.0 });
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        a.y = height + 200; 
+                    }
+                }
+            }
+
+            // Sync Stuck position with the player body perfectly
+            if (a.stuckTo) {
+                a.x = a.stuckTo.x + a.offsetX;
+                a.y = a.stuckTo.y + a.offsetY;
+            }
+        });
+
+        // 3 Arrow Maximum Touch Constraint (Arrows sticking directly in players)
+        [p1, p2].forEach(t => {
+            let stuckArrows = arrows.filter(a => a.stuckTo === t);
+            while (stuckArrows.length > 3) {
+                let oldest = stuckArrows.shift();
+                let idx = arrows.indexOf(oldest);
+                if (idx > -1) arrows.splice(idx, 1);
+            }
+        });
+
+        // 3 Arrow Maximum Miss Constraint (Arrows sticking in Ground)
+        const groundArrows = arrows.filter(a => a.stopped && !a.stuckTo && a.type !== 'explosive');
+        if (groundArrows.length > 3) {
+            for(let i=0; i<groundArrows.length - 3; i++) {
+                const idx = arrows.indexOf(groundArrows[i]); if (idx > -1) arrows.splice(idx, 1);
+            }
+        }
+
+        particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; if(p.life <= 0) particles.splice(i, 1); });
+        explosions.forEach((e, i) => { e.r += 4; e.life -= 0.05; if(e.life <= 0) explosions.splice(i, 1); });
+        damageTexts.forEach((d, i) => { d.y -= 1; d.life -= 0.02; if(d.life <= 0) damageTexts.splice(i, 1); });
+        updateHud();
+
+        // Standard Match End conditions
+        if (p1.hp <= 0 || p2.hp <= 0) {
+            window.gameEnded = true;
+            document.getElementById('end-screen').style.display = 'flex';
+            
+            if (p1.hp <= 0 && p2.hp <= 0) {
+                document.getElementById('end-title').innerText = "DRAW!";
+            } else if (p1.hp <= 0) {
+                document.getElementById('end-title').innerText = "YOU LOSE!";
+                // Result saved by opponent (P2)
+            } else {
+                document.getElementById('end-title').innerText = "YOU WIN!";
+                // Automatically save result to DB when winning normally
+                if (window.multiplayerMode) saveResult(window.myName, window.oppName);
+            }
+            
+            if (window.multiplayerMode && fb.db) {
+                fb.onDisconnect(fb.ref(fb.db, `rooms/${window.roomCode}`)).cancel();
+            }
+        }
+    }
+
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const sky = ctx.createLinearGradient(0,0,0,height);
+        sky.addColorStop(0, '#0ea5e9'); sky.addColorStop(1, '#bae6fd');
+        ctx.fillStyle = sky; ctx.fillRect(0,0,width,height);
+        ctx.fillStyle = "#fef08a"; ctx.beginPath(); ctx.arc(width-80, 70, 35, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#22c55e"; ctx.fillRect(0, groundY, width, 80);
+
+        if(p1.pulling && !window.gameEnded) {
+            ctx.beginPath(); ctx.setLineDash([5, 5]); ctx.strokeStyle = "rgba(255,255,255,0.3)";
+            let tx = p1.x + 17, ty = p1.y + 30, pwr = Math.min(Math.sqrt(p1.pullX**2 + p1.pullY**2)/6, 32);
+            let ang = Math.atan2(p1.pullY, p1.pullX) + Math.PI;
+            let tvx = Math.cos(ang)*pwr, tvy = Math.sin(ang)*pwr;
+            ctx.moveTo(tx, ty);
+            for(let i=0; i<15; i++) { tx += tvx; ty += tvy; tvy += gravity; ctx.lineTo(tx, ty); }
+            ctx.stroke(); ctx.setLineDash([]);
+        }
+
+        if(p1.ability && !window.gameEnded) {
+            ctx.fillStyle = "white"; ctx.font = "bold 16px Orbitron"; ctx.textAlign = "center";
+            let msg = p1.pulling ? (p1.recharge >= 100 ? "READY!" : "RECHARGE...") : "DRAG AND HOLD FOR RECHARGE";
+            if(p1.recharge >= 100) ctx.fillStyle = "#fbbf24";
+            ctx.fillText(msg, width/2, 100); ctx.textAlign = "start";
+        }
+
+        particles.forEach(p => {
+            ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+            if (p.type === 'spark') ctx.fillRect(p.x, p.y, p.size, p.size);
+            else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1-p.life + 0.5), 0, Math.PI*2); ctx.fill(); }
+        });
+        ctx.globalAlpha = 1.0;
+
+        drawStickman(p1); drawStickman(p2);
+
+        arrows.forEach(a => {
+            ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(a.angle);
+            ctx.strokeStyle = a.type === 'explosive' ? "#ef4444" : "#1e293b";
+            if(a.type === 'explosive') { ctx.shadowBlur = 10; ctx.shadowColor = "red"; }
+            ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-14,0); ctx.lineTo(14,0); ctx.moveTo(14,0); ctx.lineTo(8,-4); ctx.moveTo(14,0); ctx.lineTo(8,4); ctx.stroke();
+            ctx.restore();
+        });
+
+        explosions.forEach(e => {
+            ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+            ctx.fillStyle = `rgba(255, 69, 0, ${e.life})`; ctx.fill();
+        });
+
+        damageTexts.forEach(d => {
+            ctx.fillStyle = d.color; ctx.font = `bold ${16 + (1-d.life)*10}px Orbitron`;
+            ctx.globalAlpha = d.life; ctx.fillText(d.val, d.x - 10, d.y); ctx.globalAlpha = 1.0;
+        });
+
+        update(); requestAnimationFrame(render);
+    }
+    render();
+</script>
+</body>
+</html>
