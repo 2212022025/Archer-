@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Archers: Track & Replay</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glass: rgba(255, 255, 255, 0.3);
+            --hp-high: #22c55e;
+            --hp-mid: #eab308;
+            --hp-low: #ef4444;
+            --charge-color: #fbbf24;
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background: #0f172a;
+            font-family: 'Orbitron', sans-serif;
+            touch-action: none; user-select: none;
+        }
+
+        #rotate-overlay {
+            position: fixed; inset: 0; background: #0f172a; color: white;
+            z-index: 4000; display: none; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+        @media (orientation: portrait) { #rotate-overlay { display: flex; } }
+
+        #game-container { position: relative; width: 100vw; height: 100vh; background: #87CEEB; display: flex; justify-content: center; }
+        canvas { display: block; }
+
+        .hud {
+            position: absolute; top: 15px; left: 5%; width: 90%;
+            display: flex; justify-content: space-between; pointer-events: none;
+        }
+        
+        .hp-card {
+            width: 150px; padding: 6px; background: var(--glass);
+            backdrop-filter: blur(8px); border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .hp-info { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
+        .hp-bar { height: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+        .hp-fill { height: 100%; width: 100%; transition: width 0.2s ease-out, background-color 0.3s; }
+
+        /* Hidden since it's an Observer Client */
+        .controls, .ability-row, #jump-btn { display: none !important; }
+
+        .fullscreen-menu {
+            position: fixed; inset: 0; background: #0f172a; color: white;
+            z-index: 1000; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+
+        .menu-btn {
+            background: rgba(255, 255, 255, 0.1); border: 2px solid white; color: white;
+            font-family: 'Orbitron', sans-serif; font-size: 1.2rem;
+            padding: 15px 40px; margin: 10px; border-radius: 8px;
+            cursor: pointer; transition: 0.2s; text-transform: uppercase;
+            letter-spacing: 2px; width: 280px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .menu-btn:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+        .menu-btn:active { transform: scale(0.95); }
+
+        .input-field {
+            padding: 15px; font-size: 1.5rem; margin-bottom: 20px;
+            text-align: center; border-radius: 8px; border: 2px solid white;
+            background: rgba(255,255,255,0.1); color: #fbbf24; outline: none;
+            font-family: 'Orbitron', sans-serif; width: 250px; text-transform: uppercase;
+            letter-spacing: 5px;
+        }
+        .input-field::placeholder { color: rgba(255,255,255,0.4); letter-spacing: 2px; font-size: 1.2rem; }
+
+        #replay-hud {
+            position: absolute; bottom: 30px; left: 10%; width: 80%;
+            background: rgba(15, 23, 42, 0.85); border-radius: 12px; padding: 15px;
+            display: none; flex-direction: column; z-index: 2000;
+            backdrop-filter: blur(10px); border: 2px solid rgba(255,255,255,0.2);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+<div id="rotate-overlay"><h1>🔄 Rotate to Landscape</h1></div>
+
+<!-- Main Menu -->
+<div id="start-screen" class="fullscreen-menu">
+    <h1 style="margin: 0 0 10px 0; font-size: 4rem; letter-spacing: 5px;">ARCHERS</h1>
+    <h2 style="margin: 0 0 40px 0; font-size: 1.2rem; color: #fbbf24; letter-spacing: 3px;">OBSERVER & REPLAY CLIENT</h2>
+    <button class="menu-btn" id="btn-track-menu">Track & Recorder</button>
+    <button class="menu-btn" id="btn-replay-menu">View Replay</button>
+    <input type="file" id="file-input" accept=".json" style="display: none;">
+</div>
+
+<!-- Track Screen -->
+<div id="track-screen" class="fullscreen-menu" style="display: none;">
+    <h1 style="font-size: 3rem; margin-bottom: 20px;">TRACK MATCH</h1>
+    <input type="text" id="trackRoomCode" class="input-field" placeholder="ROOM CODE" maxlength="4">
+    <div style="display: flex; gap: 15px;">
+        <button class="menu-btn" id="btn-start-track" style="margin: 0; width: 220px;">Start Scanning</button>
+        <button class="menu-btn" id="btn-back-track" style="margin: 0; background: rgba(239, 68, 68, 0.3); width: 140px;">Back</button>
+    </div>
+    <p id="track-status" style="margin-top: 25px; font-size: 1.2rem; color: #fbbf24; font-weight: bold; min-height: 30px;"></p>
+</div>
+
+<!-- Exit Confirmation Popup -->
+<div id="exit-popup" class="fullscreen-menu" style="display: none; z-index: 5000; background: rgba(15,23,42,0.95);">
+    <h2 style="font-size: 2.5rem; margin-bottom: 30px; text-transform: uppercase;">Stop Watching?</h2>
+    <div style="display: flex; gap: 20px;">
+        <button class="menu-btn" id="btn-exit-yes" style="background: rgba(239, 68, 68, 0.4); width: 140px;">Yes</button>
+        <button class="menu-btn" id="btn-exit-no" style="background: rgba(34, 197, 94, 0.4); width: 140px;">No</button>
+    </div>
+</div>
+
+<!-- Custom Alert Popup -->
+<div id="custom-alert" class="fullscreen-menu" style="display: none; z-index: 6000; background: rgba(15,23,42,0.95);">
+    <h2 id="alert-message" style="font-size: 1.5rem; margin-bottom: 30px; text-transform: uppercase; max-width: 80%; line-height: 1.4; color: #fbbf24;"></h2>
+    <button class="menu-btn" id="btn-alert-ok" style="background: rgba(34, 197, 94, 0.4); width: 140px;">OK</button>
+</div>
+
+<!-- End Game Screen -->
+<div id="end-screen" class="fullscreen-menu" style="display: none; z-index: 3000; background: rgba(15,23,42,0.95);">
+    <h1 id="end-title" style="font-size: 4rem; margin-bottom: 10px;"></h1>
+    <h2 id="winner-name" style="font-size: 2.5rem; margin-bottom: 20px; color: #22c55e;"></h2>
+    
+    <div id="download-section" style="display: none; margin-bottom: 30px; text-align: center;">
+        <button class="menu-btn" id="btn-download-data" style="background: rgba(34, 197, 94, 0.6); width: 320px;">Download Data (.json)</button>
+        <button class="menu-btn" id="btn-download-video-end" style="background: rgba(59, 130, 246, 0.6); width: 320px; display: none;">Download Video</button>
+        <pre id="data-preview" style="text-align: left; background: rgba(0,0,0,0.5); padding: 12px; width: 80vw; max-width: 600px; max-height: 180px; overflow: auto; font-size: 12px; margin: 15px auto 0; border-radius: 5px; color: #a5f3fc; border: 1px solid rgba(255,255,255,0.2);"></pre>
+    </div>
+
+    <button class="menu-btn" id="btn-main-menu-end">Main Menu</button>
+</div>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="hud">
+        <div class="hp-card">
+            <div class="hp-info">
+                <span style="color: white;" id="p1-name-display">HOST</span>
+                <span id="p1-hp-num">1000</span>
+            </div>
+            <div class="hp-bar"><div id="p1-hp" class="hp-fill"></div></div>
+        </div>
+        
+        <div class="hp-card">
+            <div class="hp-info">
+                <span id="p2-hp-num">1000</span>
+                <span style="color: white;" id="p2-name-display">GUEST</span>
+            </div>
+            <div class="hp-bar"><div id="p2-hp" class="hp-fill"></div></div>
+        </div>
+    </div>
+
+    <div id="replay-hud">
+        <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; color: white; font-weight: bold;">
+            <span id="replay-time">00:00</span>
+            <span id="replay-status" style="color: #fbbf24; letter-spacing: 2px;">REPLAYING MATCH</span>
+            <span id="replay-duration">00:00</span>
+        </div>
+        <div style="width: 100%; height: 12px; background: rgba(0,0,0,0.5); border-radius: 6px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.2);">
+            <div id="replay-progress" style="height: 100%; width: 0%; background: linear-gradient(90deg, #f59e0b, #fbbf24); transition: width 0.1s linear;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCyE1coLVha22Y_5E71n4FW1VQNHf3s81Q",
+        authDomain: "vs-1-12110.firebaseapp.com",
+        databaseURL: "https://vs-1-12110-default-rtdb.firebaseio.com",
+        projectId: "vs-1-12110",
+        storageBucket: "vs-1-12110.firebasestorage.app",
+        messagingSenderId: "512391960635",
+        appId: "1:512391960635:web:1ebc6d07d5bbd5adcca41e"
+    };
+
+    let fb = {}; 
+    window.inMatch = false;
+    window.gameEnded = false; 
+    
+    // Core Observer Variables
+    window.isTracking = false;
+    window.isReplay = false;
+    window.matchData = null;
+    let currentListeners = [];
+    let scanUnsub = null;
+
+    let replayData = null;
+    let replayStartTime = 0;
+    let replayIndex = 0;
+
+    // Video Recording Variables
+    let mediaRecorder = null;
+    let recordedChunks = [];
+
+    function showCustomAlert(msg) {
+        document.getElementById('alert-message').innerText = msg;
+        document.getElementById('custom-alert').style.display = 'flex';
+    }
+
+    document.getElementById('btn-alert-ok').addEventListener('click', () => {
+        document.getElementById('custom-alert').style.display = 'none';
+    });
+
+    window.addEventListener('popstate', (e) => {
+        if (window.inMatch && !window.gameEnded) {
+            document.getElementById('exit-popup').style.display = 'flex';
+            history.pushState({ inGame: true }, "");
+        }
+    });
+
+    function forceFullScreen() {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        }
+    }
+
+    async function connectFirebase() {
+        if(fb.db) return true;
+        try {
+            const appMod = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
+            const dbMod = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js");
+            const app = appMod.initializeApp(firebaseConfig);
+            fb = { ...dbMod, db: dbMod.getDatabase(app) };
+            return true;
+        } catch(err) {
+            showCustomAlert("Could not connect to database! Please check your connection.");
+            return false;
+        }
+    }
+
+    document.getElementById('btn-track-menu').addEventListener('click', async () => {
+        forceFullScreen();
+        const btn = document.getElementById('btn-track-menu');
+        btn.innerText = "Connecting...";
+        const success = await connectFirebase();
+        btn.innerText = "Track & Recorder";
+        if(success) {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('track-screen').style.display = 'flex';
+        }
+    });
+
+    document.getElementById('btn-back-track').addEventListener('click', () => {
+        if(scanUnsub) { scanUnsub(); scanUnsub = null; }
+        document.getElementById('track-screen').style.display = 'none';
+        document.getElementById('start-screen').style.display = 'flex';
+    });
+
+    document.getElementById('btn-exit-no').addEventListener('click', () => {
+        document.getElementById('exit-popup').style.display = 'none';
+    });
+    
+    document.getElementById('btn-exit-yes').addEventListener('click', () => location.reload());
+    document.getElementById('btn-main-menu-end').addEventListener('click', () => location.reload());
+
+    /* ==============================
+       TRACK & RECORDER LOGIC
+       ============================== */
+    document.getElementById('btn-start-track').addEventListener('click', () => {
+        const code = document.getElementById('trackRoomCode').value.trim();
+        if(!code) { showCustomAlert("Enter room code!"); return; }
+        
+        document.getElementById('track-status').innerText = "Scanning Room " + code + "...";
+        
+        if(scanUnsub) { scanUnsub(); scanUnsub = null; }
+        
+        scanUnsub = fb.onValue(fb.ref(fb.db, `rooms/${code}/status`), (snap) => {
+            const status = snap.val();
+            if(!status) {
+                document.getElementById('track-status').innerText = "Scanning... (Room empty)";
+                return;
+            }
+            if(status === 'waiting') {
+                document.getElementById('track-status').innerText = "Waiting for opponent to join...";
+            } else if(status === 'playing') {
+                if(scanUnsub) scanUnsub();
+                scanUnsub = null;
+                if (!window.isTracking) startTracking(code);
+            } else if(status === 'abandoned') {
+                document.getElementById('track-status').innerText = "Match was abandoned.";
+            }
+        });
+    });
+
+    function startTracking(code) {
+        document.getElementById('track-screen').style.display = 'none';
+        window.inMatch = true;
+        window.isTracking = true;
+        window.gameEnded = false;
+        history.pushState({ inGame: true }, "");
+
+        window.matchData = {
+            roomCode: code,
+            hostName: "Host",
+            guestName: "Guest",
+            startTime: Date.now(),
+            endTime: 0,
+            winner: "",
+            events: []
+        };
+
+        // Fetch Player Names
+        fb.get(fb.child(fb.ref(fb.db), `rooms/${code}`)).then((snap) => {
+            const room = snap.val();
+            if(room && room.host && room.host.name) window.matchData.hostName = room.host.name;
+            if(room && room.guest && room.guest.name) window.matchData.guestName = room.guest.name;
+            
+            document.getElementById('p1-name-display').innerText = window.matchData.hostName.toUpperCase();
+            document.getElementById('p2-name-display').innerText = window.matchData.guestName.toUpperCase();
+        });
+
+        initAudio();
+        const trackingStartTime = Date.now();
+
+        function pushEvent(type, role, data) {
+            window.matchData.events.push({
+                t: Date.now() - window.matchData.startTime,
+                type, role, data
+            });
+        }
+
+        currentListeners.push( fb.onValue(fb.ref(fb.db, `rooms/${code}/status`), (snap) => {
+            const status = snap.val();
+            pushEvent('status', null, status);
+            if (status === 'abandoned') {
+                if(!window.gameEnded) endMatch("MATCH ABANDONED", null);
+            }
+        }) );
+
+        currentListeners.push( fb.onValue(fb.ref(fb.db, `rooms/${code}/host/state`), (snap) => {
+            const s = snap.val(); if(s) { pushEvent('state', 'host', s); applyHostState(s); }
+        }) );
+        
+        currentListeners.push( fb.onValue(fb.ref(fb.db, `rooms/${code}/guest/state`), (snap) => {
+            const s = snap.val(); if(s) { pushEvent('state', 'guest', s); applyGuestState(s); }
+        }) );
+        
+        currentListeners.push( fb.onChildAdded(fb.ref(fb.db, `rooms/${code}/host/fire`), (snap) => {
+            const ev = snap.val(); if(ev && ev.ts > trackingStartTime - 2000) { pushEvent('fire', 'host', ev); applyFire('host', ev); }
+        }) );
+        
+        currentListeners.push( fb.onChildAdded(fb.ref(fb.db, `rooms/${code}/guest/fire`), (snap) => {
+            const ev = snap.val(); if(ev && ev.ts > trackingStartTime - 2000) { pushEvent('fire', 'guest', ev); applyFire('guest', ev); }
+        }) );
+        
+        currentListeners.push( fb.onChildAdded(fb.ref(fb.db, `rooms/${code}/host/hits`), (snap) => {
+            const ev = snap.val(); if(ev && ev.ts > trackingStartTime - 2000) { pushEvent('hit', 'host', ev); applyHit('host', ev); }
+        }) );
+        
+        currentListeners.push( fb.onChildAdded(fb.ref(fb.db, `rooms/${code}/guest/hits`), (snap) => {
+            const ev = snap.val(); if(ev && ev.ts > trackingStartTime - 2000) { pushEvent('hit', 'guest', ev); applyHit('guest', ev); }
+        }) );
+    }
+
+    document.getElementById('btn-download-data').addEventListener('click', () => {
+        if(!window.matchData) return;
+        const blob = new Blob([JSON.stringify(window.matchData)], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `match_${window.matchData.roomCode || "data"}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    /* ==============================
+       VIEW REPLAY & VIDEO LOGIC
+       ============================== */
+    function startVideoRecording() {
+        try {
+            const stream = canvas.captureStream(60); // 60 FPS for smooth replay
+            recordedChunks = [];
+            
+            // High Bitrate setup to eliminate lag/compression artifacts
+            let options = { videoBitsPerSecond: 8000000 }; 
+            
+            // Prioritize hardware-accelerated and widely compatible mp4/h264 formats
+            const types = [
+                'video/mp4;codecs=avc1.42E01E', 
+                'video/mp4;codecs=h264',
+                'video/mp4',
+                'video/webm;codecs=h264',
+                'video/webm'
+            ];
+            
+            for (let t of types) {
+                if (MediaRecorder.isTypeSupported(t)) {
+                    options.mimeType = t;
+                    break;
+                }
+            }
+
+            mediaRecorder = new MediaRecorder(stream, options);
+
+            mediaRecorder.ondataavailable = function(e) {
+                if (e.data && e.data.size > 0) {
+                    recordedChunks.push(e.data);
+                }
+            };
+            
+            // Requesting data in 1000ms timeslices prevents massive CPU lag spikes
+            // that usually happen when attempting to buffer the entire video at once.
+            mediaRecorder.start(1000); 
+        } catch(err) {
+            console.warn("Video recording not supported:", err);
+        }
+    }
+
+    function forceVideoDownload() {
+        if (recordedChunks.length === 0) {
+            showCustomAlert("Video is still processing, please wait a moment.");
+            return;
+        }
+        
+        let mime = (mediaRecorder && mediaRecorder.mimeType) ? mediaRecorder.mimeType : 'video/mp4';
+        const blob = new Blob(recordedChunks, { type: mime });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        // Always set the file output as .mp4 per user request for best local OS compatibility
+        a.download = `match_replay_${Date.now()}.mp4`; 
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    const downloadBtnHandler = () => {
+        if (recordedChunks.length > 0) {
+            forceVideoDownload();
+        } else {
+            showCustomAlert("No video data available yet.");
+        }
+    };
+
+    document.getElementById('btn-download-video-end').addEventListener('click', downloadBtnHandler);
+
+    document.getElementById('btn-replay-menu').addEventListener('click', () => {
+        forceFullScreen();
+        document.getElementById('file-input').value = "";
+        document.getElementById('file-input').click();
+    });
+
+    document.getElementById('file-input').addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if(!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (data && typeof data === 'object' && data.events && Array.isArray(data.events) && data.hostName && data.guestName) {
+                    startReplay(data);
+                } else {
+                    showCustomAlert("Error: Incomplete match data. Missing events or player names.");
+                }
+            } catch(err) {
+                showCustomAlert("Error: File is not valid JSON.");
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+    });
+
+    function formatTime(ms) {
+        let s = Math.floor(ms / 1000);
+        let m = Math.floor(s / 60);
+        s = s % 60;
+        return `${m < 10 ? '0':''}${m}:${s < 10 ? '0':''}${s}`;
+    }
+
+    function startReplay(data) {
+        document.getElementById('start-screen').style.display = 'none';
+        window.inMatch = true;
+        window.isReplay = true;
+        window.gameEnded = false;
+        history.pushState({ inGame: true }, "");
+
+        replayData = data;
+        replayData.events.sort((a, b) => a.t - b.t);
+        replayIndex = 0;
+        
+        p1.hp = 1000; p2.hp = 1000;
+        p1.x = 100; p2.x = width - 150;
+        p1.y = groundY - p1.h; p2.y = groundY - p2.h;
+        arrows = []; explosions = []; particles = []; damageTexts = [];
+
+        document.getElementById('p1-name-display').innerText = data.hostName.toUpperCase();
+        document.getElementById('p2-name-display').innerText = data.guestName.toUpperCase();
+        
+        document.getElementById('replay-hud').style.display = 'flex';
+        initAudio();
+
+        let durationMs = data.events.length > 0 ? data.events[data.events.length - 1].t : 0;
+        if(data.endTime && data.startTime) durationMs = Math.max(durationMs, data.endTime - data.startTime);
+        replayData.durationMs = durationMs;
+        
+        document.getElementById('replay-duration').innerText = formatTime(durationMs);
+        replayStartTime = Date.now();
+
+        // Start recording the canvas automatically
+        startVideoRecording();
+    }
+
+
+    /* ==============================
+       GAME & OBSERVER LOGIC
+       ============================== */
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const sounds = {
+        jump: new Audio('jump.mp3'),
+        arrow: new Audio('arrow.mp3'),
+        hit: new Audio('hit.mp3'),
+        bob: new Audio('bob.mp3')
+    };
+
+    function initAudio() {
+        for (let key in sounds) {
+            sounds[key].load();
+        }
+    }
+
+    function playSound(name) {
+        if(sounds[name]) {
+            let s = sounds[name].cloneNode();
+            s.play().catch(e => console.log('Audio play blocked/failed:', e));
+        }
+    }
+
+    let width, height, groundY;
+    const gravity = 0.5;
+    let arrows = [], damageTexts = [], explosions = [], particles = [];
+    
+    const p1 = { x: 100, y: 0, w: 35, h: 70, hp: 1000, vx: 0, vy: 0, isGrounded: false, dir: 1, pulling: false, pullX: 0, pullY: 0, ability: null, recharge: 0, shootAnim: 0, lastShootAng: 0 };
+    const p2 = { x: 0, y: 0, w: 35, h: 70, hp: 1000, vx: 0, vy: 0, isGrounded: false, dir: -1, pulling: false, pullX: 0, pullY: 0, ability: null, recharge: 0, shootAnim: 0, lastShootAng: 0 };
+
+    function init() {
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (!isMobile) {
+            width = canvas.width = Math.min(window.innerWidth, 1200);
+            height = canvas.height = window.innerHeight;
+            canvas.style.margin = "0 auto";
+        } else {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            canvas.style.margin = "0";
+        }
+        groundY = height - 80;
+        if (p1.y === 0 || p1.y > groundY) { p1.y = groundY - p1.h; }
+        if (p2.x === 0 || p2.x >= width - 150) { p2.x = width - 150; }
+        if (p2.y === 0 || p2.y > groundY) { p2.y = groundY - p2.h; }
+    }
+    window.addEventListener('resize', init);
+    init();
+
+    function applyHostState(s) {
+        p1.x = s.nx * width;
+        if(s.gy !== undefined) p1.y = groundY - s.gy;
+        p1.vx = s.vx; p1.vy = s.vy;
+        p1.pulling = s.pulling; p1.pullX = s.pullX; p1.pullY = s.pullY;
+        p1.hp = s.hp; p1.ability = s.ability; p1.recharge = s.recharge;
+        if(s.dir !== undefined) p1.dir = s.dir;
+        if(p1.y < groundY - p1.h - 5) {
+            if(p1.isGrounded && p1.vy < -5) playSound('jump');
+            p1.isGrounded = false;
+        }
+    }
+
+    function applyGuestState(s) {
+        p2.x = width - (s.nx * width) - p2.w;
+        if(s.gy !== undefined) p2.y = groundY - s.gy;
+        p2.vx = -s.vx; p2.vy = s.vy;
+        p2.pulling = s.pulling; p2.pullX = -s.pullX; p2.pullY = s.pullY;
+        p2.hp = s.hp; p2.ability = s.ability; p2.recharge = s.recharge;
+        if(s.dir !== undefined) p2.dir = -s.dir;
+        if(p2.y < groundY - p2.h - 5) {
+            if(p2.isGrounded && p2.vy < -5) playSound('jump');
+            p2.isGrounded = false;
+        }
+    }
+
+    function applyFire(role, ev) {
+        let owner = role === 'host' ? p1 : p2;
+        let stX, stY, ang;
+        if(role === 'host') {
+            stX = ev.nx !== undefined ? (ev.nx * width + 17) : (p1.x + 17);
+            stY = ev.gy !== undefined ? (groundY - ev.gy + 30) : (p1.y + 30);
+            ang = ev.ang;
+        } else {
+            stX = ev.nx !== undefined ? (width - (ev.nx * width) - p2.w + 17) : (p2.x + 17);
+            stY = ev.gy !== undefined ? (groundY - ev.gy + 30) : (p2.y + 30);
+            ang = Math.PI - ev.ang;
+        }
+        let rx = ev.sw ? width / ev.sw : 1;
+        let ry = ev.sh ? height / ev.sh : 1;
+        
+        owner.shootAnim = 15;
+        owner.lastShootAng = owner.dir === 1 ? ang : -ang + Math.PI;
+        
+        arrows.push({ 
+            x: stX, y: stY, 
+            vx: Math.cos(ang) * ev.pwr * rx, 
+            vy: Math.sin(ang) * ev.pwr * ry, 
+            g: gravity * ry, 
+            owner: owner, angle: ang, hit: false, stopped: false, type: ev.type, split: false, life: 0, hasDamaged: false, stuckTo: null, offsetX: 0, offsetY: 0
+        });
+        playSound('arrow');
+    }
+
+    function applyHit(role, ev) {
+        let target = role === 'host' ? p1 : p2;
+        target.hp = Math.max(0, target.hp - ev.dmg);
+        damageTexts.push({ x: target.x + 17, y: target.y, val: ev.dmg, color: "red", life: 1.0 });
+    }
+
+    function createParticle(x, y, type) {
+        if (type === 'smoke') particles.push({ x: x + (Math.random()-0.5)*30, y: y + (Math.random()-0.5)*50, vx: (Math.random()-0.5)*1, vy: -Math.random()*2, size: Math.random()*15 + 5, life: 1.0, color: 'rgba(255, 0, 0, 0.4)', type: 'smoke' });
+        else particles.push({ x: x + (Math.random()-0.5)*40, y: y + (Math.random()-0.5)*70, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, size: 2, life: 1.0, color: '#00ffff', type: 'spark' });
+    }
+
+    function updateHud() {
+        [p1, p2].forEach((p, idx) => {
+            const id = idx === 0 ? 'p1' : 'p2';
+            const bar = document.getElementById(`${id}-hp`);
+            const num = document.getElementById(`${id}-hp-num`);
+            let color = p.hp > 600 ? 'var(--hp-high)' : (p.hp > 300 ? 'var(--hp-mid)' : 'var(--hp-low)');
+            bar.style.width = (p.hp/10) + "%"; bar.style.backgroundColor = color;
+            num.innerText = p.hp; num.style.color = color;
+        });
+    }
+
+    function drawStickman(c) {
+        ctx.save(); ctx.translate(c.x + 17, c.y + 35); ctx.scale(c.dir, 1);
+        
+        let bowAng = 0, pullDist = 0;
+        if(c.pulling) {
+            const actualAng = Math.atan2(c.pullY, c.pullX) + Math.PI;
+            bowAng = c.dir === 1 ? actualAng : -actualAng + Math.PI;
+            c.lastShootAng = bowAng;
+            pullDist = Math.min(Math.sqrt(c.pullX**2 + c.pullY**2)/5, 20);
+        } else if (c.shootAnim > 0) {
+            bowAng = c.lastShootAng || 0;
+            pullDist = -25;
+        } else {
+            bowAng = Math.PI / 6; 
+            pullDist = 0;
+        }
+
+        ctx.strokeStyle = "#334155"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        const walk = Math.abs(c.vx) > 0.2 ? Math.sin(Date.now() / 80) * 14 : 0;
+        
+        ctx.beginPath(); ctx.arc(0, -30, 9, 0, Math.PI*2); ctx.stroke();
+        
+        ctx.fillStyle = c === p1 ? "#0ea5e9" : "#ef4444";
+        ctx.strokeStyle = c === p1 ? "#0ea5e9" : "#ef4444";
+        ctx.lineWidth = 2;
+        
+        let isStraining = c.pulling && pullDist > 14;
+        if (isStraining) {
+            ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(3, -31); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(8, -34); ctx.lineTo(5, -31); ctx.stroke();
+        } else {
+            ctx.beginPath(); ctx.arc(2, -32, 1.5, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(6, -32, 1.5, 0, Math.PI*2); ctx.fill();
+        }
+        
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(9, -36); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-14, -38); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-9, -36); ctx.lineTo(-12, -32); ctx.stroke();
+
+        ctx.strokeStyle = "#334155"; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(0, -21); ctx.lineTo(0, 10); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(-10 - walk, 35); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(10 + walk, 35); ctx.stroke();
+        
+        ctx.save(); ctx.rotate(bowAng);
+        
+        ctx.strokeStyle = "#78350f"; ctx.lineWidth = 3.5;
+        ctx.beginPath(); ctx.arc(20, 0, 28, -1, 1); ctx.stroke();
+        
+        ctx.strokeStyle = "rgba(0,0,0,0.2)"; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(20, -25); ctx.lineTo(-pullDist, 0); ctx.lineTo(20, 25); ctx.stroke();
+        
+        ctx.strokeStyle = (c.ability && c.recharge >= 100) ? (c.ability === 'explosive' ? '#ef4444' : '#fbbf24') : "#334155";
+        ctx.lineWidth = 4;
+        
+        if (c.shootAnim > 0 && !c.pulling) {
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(25, 0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(0, 10); ctx.stroke();
+        } else if (c.pulling) {
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(20, 0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(-pullDist, 0); ctx.stroke();
+        } else {
+            ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(20, 0); ctx.stroke();
+        }
+        
+        ctx.restore(); ctx.restore();
+    }
+
+    function endMatch(title, winnerName) {
+        if(window.gameEnded) return;
+        window.gameEnded = true;
+        
+        if (window.isReplay && mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+        }
+
+        document.getElementById('end-screen').style.display = 'flex';
+        document.getElementById('end-title').innerText = title;
+        
+        if(winnerName && winnerName !== "DRAW") {
+            document.getElementById('winner-name').innerText = "WINNER: " + winnerName.toUpperCase();
+        } else if (winnerName === "DRAW") {
+            document.getElementById('winner-name').innerText = "DRAW!";
+        } else {
+            document.getElementById('winner-name').innerText = "";
+        }
+
+        if (window.isTracking && window.matchData) {
+            window.matchData.endTime = Date.now();
+            window.matchData.winner = winnerName;
+            
+            document.getElementById('download-section').style.display = 'block';
+            document.getElementById('btn-download-data').style.display = 'inline-block';
+            document.getElementById('data-preview').style.display = 'block';
+            document.getElementById('btn-download-video-end').style.display = 'none';
+            
+            let previewData = JSON.stringify(window.matchData, null, 2);
+            if(previewData.length > 500) {
+                previewData = previewData.substring(0, 500) + "\n\n... (Data truncated for preview)";
+            }
+            document.getElementById('data-preview').innerText = previewData;
+            
+            currentListeners.forEach(unsub => { if(typeof unsub === 'function') unsub(); });
+            currentListeners = [];
+        } else if (window.isReplay) {
+            document.getElementById('download-section').style.display = 'block';
+            document.getElementById('btn-download-data').style.display = 'none';
+            document.getElementById('data-preview').style.display = 'none';
+            document.getElementById('btn-download-video-end').style.display = 'inline-block';
+        } else {
+            document.getElementById('download-section').style.display = 'none';
+        }
+    }
+
+    function update() {
+        if(window.gameEnded) return;
+
+        p1.shootAnim = Math.max(0, (p1.shootAnim || 0) - 1);
+        p2.shootAnim = Math.max(0, (p2.shootAnim || 0) - 1);
+
+        [p1, p2].forEach(p => {
+            if(p.ability && p.pulling && p.recharge < 100) {
+                createParticle(p.x + 17, p.y + 35, 'smoke');
+                if (Math.random() > 0.8) createParticle(p.x + 17, p.y + 35, 'spark');
+            }
+        });
+
+        if (window.isReplay && replayData) {
+            let currentReplayTime = Date.now() - replayStartTime;
+            document.getElementById('replay-time').innerText = formatTime(currentReplayTime);
+            let progress = Math.min(100, (currentReplayTime / replayData.durationMs) * 100);
+            document.getElementById('replay-progress').style.width = progress + "%";
+
+            while(replayIndex < replayData.events.length && replayData.events[replayIndex].t <= currentReplayTime) {
+                let ev = replayData.events[replayIndex];
+                
+                if (ev.type === 'state') {
+                    if(ev.role === 'host') applyHostState(ev.data);
+                    else applyGuestState(ev.data);
+                } else if (ev.type === 'fire') {
+                    applyFire(ev.role, ev.data);
+                } else if (ev.type === 'hit') {
+                    applyHit(ev.role, ev.data);
+                } else if (ev.type === 'status') {
+                    if(ev.data === 'abandoned') {
+                        if(!window.gameEnded) endMatch("MATCH ABANDONED", null);
+                    }
+                }
+                replayIndex++;
+            }
+        }
+
+        p1.x += p1.vx; p1.y += p1.vy; p1.vy += gravity;
+        p2.x += p2.vx; p2.y += p2.vy; p2.vy += gravity;
+
+        p1.x = Math.max(0, Math.min(width - p1.w, p1.x)); p2.x = Math.max(0, Math.min(width - p2.w, p2.x));
+        if(p1.y > groundY - p1.h) { p1.y = groundY - p1.h; p1.vy = 0; p1.isGrounded = true; }
+        if(p2.y > groundY - p2.h) { p2.y = groundY - p2.h; p2.vy = 0; p2.isGrounded = true; }
+
+        arrows.forEach((a) => {
+            if(!a.stopped && !a.stuckTo) {
+                a.x += a.vx; a.y += a.vy; a.vy += a.g; a.angle = Math.atan2(a.vy, a.vx); a.life++;
+                if(a.type === 'multi' && !a.split && a.life > 8) {
+                    a.split = true;
+                    for(let i = -2; i <= 2; i++) {
+                        if(i !== 0) arrows.push({...a, vx: a.vx, vy: a.vy + (i * 1.5 * (a.g/gravity)), type: 'normal', split: true, hasDamaged: false});
+                    }
+                }
+                
+                // Purely visual hit checking in observer mode
+                [p1, p2].forEach(t => {
+                    if(!a.hasDamaged && a.owner !== t && a.x > t.x && a.x < t.x + t.w && a.y > t.y && a.y < t.y + t.h) {
+                        a.hasDamaged = true; 
+                        if (a.type !== 'explosive') {
+                            playSound('hit');
+                            a.stuckTo = t; a.offsetX = a.x - t.x; a.offsetY = a.y - t.y; a.stopped = true;
+                        } else {
+                            playSound('bob');
+                            explosions.push({ x: a.x, y: a.y, r: 10, life: 1.0 });
+                            a.stopped = true; a.y = height + 200; 
+                        }
+                    }
+                });
+                
+                if(a.y > groundY && !a.stopped) { 
+                    a.stopped = true; a.y = groundY; 
+                    if(a.type === 'explosive' && !a.hasDamaged) {
+                        playSound('bob');
+                        explosions.push({ x: a.x, y: a.y, r: 10, life: 1.0 });
+                        a.y = height + 200; 
+                    }
+                }
+            }
+
+            if (a.stuckTo) {
+                a.x = a.stuckTo.x + a.offsetX;
+                a.y = a.stuckTo.y + a.offsetY;
+            }
+        });
+
+        [p1, p2].forEach(t => {
+            let stuckArrows = arrows.filter(a => a.stuckTo === t);
+            while (stuckArrows.length > 3) {
+                let oldest = stuckArrows.shift();
+                let idx = arrows.indexOf(oldest);
+                if (idx > -1) arrows.splice(idx, 1);
+            }
+        });
+
+        const groundArrows = arrows.filter(a => a.stopped && !a.stuckTo && a.type !== 'explosive');
+        if (groundArrows.length > 3) {
+            for(let i=0; i<groundArrows.length - 3; i++) {
+                const idx = arrows.indexOf(groundArrows[i]); if (idx > -1) arrows.splice(idx, 1);
+            }
+        }
+
+        particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; if(p.life <= 0) particles.splice(i, 1); });
+        explosions.forEach((e, i) => { e.r += 4; e.life -= 0.05; if(e.life <= 0) explosions.splice(i, 1); });
+        damageTexts.forEach((d, i) => { d.y -= 1; d.life -= 0.02; if(d.life <= 0) damageTexts.splice(i, 1); });
+        
+        updateHud();
+
+        if (p1.hp <= 0 || p2.hp <= 0) {
+            if (!window.gameEnded) {
+                let winner = "";
+                if (p1.hp <= 0 && p2.hp <= 0) winner = "DRAW";
+                else if (p1.hp <= 0) winner = (window.matchData?.guestName || replayData?.guestName || "Guest");
+                else winner = (window.matchData?.hostName || replayData?.hostName || "Host");
+                endMatch("MATCH OVER", winner);
+            }
+        } else if (window.isReplay && replayData && replayIndex >= replayData.events.length) {
+            let currentReplayTime = Date.now() - replayStartTime;
+            if(currentReplayTime > replayData.durationMs + 2000 && !window.gameEnded) {
+                endMatch("REPLAY ENDED", replayData.winner || "UNKNOWN");
+            }
+        }
+    }
+
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const sky = ctx.createLinearGradient(0,0,0,height);
+        sky.addColorStop(0, '#0ea5e9'); sky.addColorStop(1, '#bae6fd');
+        ctx.fillStyle = sky; ctx.fillRect(0,0,width,height);
+        ctx.fillStyle = "#fef08a"; ctx.beginPath(); ctx.arc(width-80, 70, 35, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#22c55e"; ctx.fillRect(0, groundY, width, 80);
+
+        particles.forEach(p => {
+            ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+            if (p.type === 'spark') ctx.fillRect(p.x, p.y, p.size, p.size);
+            else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1-p.life + 0.5), 0, Math.PI*2); ctx.fill(); }
+        });
+        ctx.globalAlpha = 1.0;
+
+        drawStickman(p1); drawStickman(p2);
+
+        arrows.forEach(a => {
+            ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(a.angle);
+            ctx.strokeStyle = a.type === 'explosive' ? "#ef4444" : "#1e293b";
+            if(a.type === 'explosive') { ctx.shadowBlur = 10; ctx.shadowColor = "red"; }
+            ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-14,0); ctx.lineTo(14,0); ctx.moveTo(14,0); ctx.lineTo(8,-4); ctx.moveTo(14,0); ctx.lineTo(8,4); ctx.stroke();
+            ctx.restore();
+        });
+
+        explosions.forEach(e => {
+            ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+            ctx.fillStyle = `rgba(255, 69, 0, ${e.life})`; ctx.fill();
+        });
+
+        damageTexts.forEach(d => {
+            ctx.fillStyle = d.color; ctx.font = `bold ${16 + (1-d.life)*10}px Orbitron`;
+            ctx.globalAlpha = d.life; ctx.fillText(d.val, d.x - 10, d.y); ctx.globalAlpha = 1.0;
+        });
+
+        update(); requestAnimationFrame(render);
+    }
+    render();
+</script>
+</body>
+</html>
