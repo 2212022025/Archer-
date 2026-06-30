@@ -86,7 +86,7 @@
 </head>
 <body>
 
-<div id="rotate-overlay"><h1>🔄 Rotate to Landscape</h1></div>
+<div id="rotate-overlay"><h1> Rotate to Landscape</h1></div>
 
 <!-- Main Menu -->
 <div id="start-screen" class="fullscreen-menu">
@@ -100,7 +100,8 @@
 <!-- Track Screen -->
 <div id="track-screen" class="fullscreen-menu" style="display: none;">
     <h1 style="font-size: 3rem; margin-bottom: 20px;">TRACK MATCH</h1>
-    <input type="text" id="trackRoomCode" class="input-field" placeholder="ROOM CODE" maxlength="4">
+    <!-- Removed maxlength="4" so you can enter room codes of any length -->
+    <input type="text" id="trackRoomCode" class="input-field" placeholder="ROOM CODE">
     <div style="display: flex; gap: 15px;">
         <button class="menu-btn" id="btn-start-track" style="margin: 0; width: 220px;">Start Scanning</button>
         <button class="menu-btn" id="btn-back-track" style="margin: 0; background: rgba(239, 68, 68, 0.3); width: 140px;">Back</button>
